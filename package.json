@@ -1,0 +1,26 @@
+{
+  "name": "kakao-lists",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@10.18.3",
+  "scripts": {
+    "dev:pwa": "pnpm --filter @kakao-lists/pwa dev",
+    "dev:extension": "pnpm --filter @kakao-lists/extension dev",
+    "dev:server": "pnpm --filter @kakao-lists/server dev",
+    "build": "pnpm --filter @kakao-lists/server build && pnpm --filter @kakao-lists/pwa build && pnpm --filter @kakao-lists/extension build",
+    "typecheck": "tsc -b packages/domain packages/kakao packages/storage packages/sync apps/server apps/pwa apps/extension"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/chrome": "^0.1.29",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.3",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^5.1.0",
+    "esbuild": "^0.25.11",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "vite": "^7.1.12"
+  }
+}

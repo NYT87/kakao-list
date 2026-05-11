@@ -1,0 +1,124 @@
+@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap");
+
+:root {
+  color-scheme: light;
+  --bg: #15120f;
+  --panel: rgba(34, 25, 20, 0.92);
+  --panel-soft: rgba(58, 40, 31, 0.82);
+  --line: rgba(255, 214, 182, 0.14);
+  --text: #fff4e8;
+  --muted: #ccb8ac;
+  --primary: #ff7b45;
+  --accent: #ffd24d;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 360px;
+  font-family: "Space Grotesk", sans-serif;
+  color: var(--text);
+  background:
+    radial-gradient(circle at top right, rgba(255, 210, 77, 0.2), transparent 30%),
+    radial-gradient(circle at bottom left, rgba(255, 123, 69, 0.18), transparent 28%),
+    var(--bg);
+}
+
+.popup-shell,
+.options-shell {
+  padding: 18px;
+}
+
+.options-panel,
+.mini-panel {
+  padding: 18px;
+  background: var(--panel-soft);
+  border: 1px solid var(--line);
+  border-radius: 22px;
+}
+
+.badge {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+  margin-bottom: 12px;
+}
+
+h1,
+h2,
+p {
+  margin-top: 0;
+}
+
+h1 {
+  font-size: 1.7rem;
+  line-height: 1.02;
+  margin-bottom: 10px;
+}
+
+.copy,
+.mini-panel p,
+.options-list {
+  color: var(--muted);
+}
+
+.actions {
+  display: flex;
+  gap: 10px;
+  margin: 18px 0;
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  padding: 0 16px;
+  border-radius: 999px;
+  text-decoration: none;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.button.primary {
+  background: linear-gradient(135deg, var(--primary), #ff5f2c);
+  color: #120d0b;
+  border-color: transparent;
+}
+
+.compact-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 10px;
+}
+
+.compact-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.compact-list span {
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.compact-list.meta li {
+  align-items: flex-start;
+}
+
+.options-list {
+  margin: 0;
+  padding-left: 18px;
+}

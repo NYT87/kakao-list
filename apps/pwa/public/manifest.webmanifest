@@ -1,0 +1,10 @@
+{
+  "name": "Kakao Lists",
+  "short_name": "KLists",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#fff7f2",
+  "theme_color": "#ff5b2e",
+  "description": "Kakao-linked favorite list sync PWA scaffold"
+}
+
