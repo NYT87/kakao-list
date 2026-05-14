@@ -12,10 +12,11 @@
     "type": "module"
   },
   "options_page": "options.html",
-  "permissions": ["storage", "alarms", "identity"],
+  "permissions": ["storage", "alarms", "identity", "tabs", "scripting"],
   "host_permissions": [
     "http://localhost:8787/*",
     "http://127.0.0.1:8787/*",
+    "https://map.kakao.com/*",
     "https://kauth.kakao.com/*",
     "https://kapi.kakao.com/*"
   ]

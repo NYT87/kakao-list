@@ -1,5 +1,418 @@
 # Progress Log
 
+## Session: 2026-05-14 (Server Postgres Migration)
+
+### Phase 1: Requirements & Discovery
+- **Status:** complete
+- Actions taken:
+  - Inspected the sync server and confirmed it was fully SQLite-based, including file-path env config, `better-sqlite3`, PRAGMA setup, schema bootstrap, and transaction helpers.
+  - Inspected workspace env/docs/package metadata to find all references to SQLite and native build approval flow.
+  - Chose a Postgres migration based on a single `DATABASE_URL` plus Docker Compose for local database startup.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/task_plan.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+### Phase 2: Implementation
+- **Status:** complete
+- Actions taken:
+  - Replaced the SQLite server persistence layer with a Postgres-backed implementation using `pg`.
+  - Added startup schema initialization for `snapshot_history`, `latest_snapshots`, and `kakao_tokens`.
+  - Reworked snapshot reads/writes and note updates to use async Postgres queries and explicit transactions.
+  - Switched server env config from `SYNC_SERVER_DB_PATH` to `DATABASE_URL`.
+  - Added `docker-compose.yml` with a local Postgres service.
+  - Updated package manifests and README setup instructions for Postgres.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/server/src/index.ts`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/server/package.json`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/package.json`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/pnpm-workspace.yaml`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/.env.example`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/README.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/docker-compose.yml`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+### Phase 3: Testing & Verification
+- **Status:** complete
+- Actions taken:
+  - Ran `pnpm install` to add `pg` and later `@types/pg`, and refreshed `pnpm-lock.yaml`.
+  - Ran `pnpm typecheck` successfully from the repo root.
+  - Ran `pnpm --filter @kakao-lists/server build` successfully.
+  - Ran `docker compose config` successfully to validate the Compose file shape.
+  - Did not run a live Postgres container or execute end-to-end API requests against Postgres in this session.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/pnpm-lock.yaml`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+## Session: 2026-05-14 (PWA + Extension Audit Hardening Pass)
+
+### Phase 1: Requirements & Discovery
+- **Status:** complete
+- Actions taken:
+  - Read the `i-audit`, `i-harden`, and `i-frontend-design` guidance referenced in the session.
+  - Re-inspected the PWA and extension against the stored design context with attention to storage parsing, duplicate async actions, empty search states, and long-text behavior.
+  - Identified the highest-value current risks as corrupted local storage crashes, repeated submit/pull/save actions, silent empty filtered states, and overflow-prone metadata rows.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/task_plan.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+### Phase 2: Planning & Findings
+- **Status:** complete
+- Actions taken:
+  - Replaced the stale planning file with a task plan for the current audit + hardening work.
+  - Recorded the audit verdict, prioritized findings, and recommended next steps in `findings.md`.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/task_plan.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+### Phase 3: Implementation
+- **Status:** complete
+- Actions taken:
+  - Hardened PWA and extension session parsing against malformed local-storage payloads.
+  - Added busy-state guards and disabled states for repeated sign-in, import, pull, and note-save actions.
+  - Added explicit no-results states for filtered PWA list and place searches.
+  - Improved overflow handling for long titles, notes, ids, and metadata rows.
+  - Added locale-aware date/count formatting helpers and clipboard availability fallback handling.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/pwa/src/App.tsx`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/pwa/src/styles.css`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/extension/src/PopupApp.tsx`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/extension/src/OptionsApp.tsx`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/extension/src/styles.css`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+### Phase 4: Testing & Verification
+- **Status:** complete
+- Actions taken:
+  - Ran `pnpm --filter @kakao-lists/pwa build` successfully.
+  - Ran `pnpm --filter @kakao-lists/extension build` successfully.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+## Session: 2026-05-14 (PWA + Extension Audit Normalization Pass)
+
+### Phase 1: Requirements & Discovery
+- **Status:** complete
+- Actions taken:
+  - Read the `i-audit`, `i-normalize`, `i-polish`, and `i-frontend-design` skill guidance referenced in the session.
+  - Re-inspected the current PWA and extension UI against the stored design context: regular Kakao Map users, simple/accessibile/clean, light mode first-class.
+  - Identified the highest-value issues as placeholder-only search fields, inconsistent keyboard focus states, reduced-motion gaps, and remaining hard-coded semantic colors.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+### Phase 2: Implementation
+- **Status:** complete
+- Actions taken:
+  - Added visually hidden labels to the PWA list and place search inputs.
+  - Made route scrolling respect `prefers-reduced-motion` for both top-of-page resets and deep-linked place scrolling.
+  - Added shared tokenized `:focus-visible` treatment and search-field focus styling in the PWA.
+  - Normalized remaining status/danger semantic colors into theme tokens and added reduced-motion CSS guards for both the PWA and extension.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/pwa/src/App.tsx`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/pwa/src/styles.css`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/extension/src/styles.css`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+### Phase 3: Testing & Verification
+- **Status:** complete
+- Actions taken:
+  - Ran `pnpm --filter @kakao-lists/pwa build` successfully.
+  - Ran `pnpm --filter @kakao-lists/extension build` successfully.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+## Session: 2026-05-14 (PWA Missing-List 404 State)
+
+### Phase 1: Requirements & Discovery
+- **Status:** complete
+- Actions taken:
+  - Re-inspected the PWA route handling after the deep-link hydration fix.
+  - Confirmed the current behavior still redirected users away from invalid list ids instead of surfacing an explicit not-found state.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+### Phase 2: Implementation
+- **Status:** complete
+- Actions taken:
+  - Removed the automatic overview redirect for missing list ids.
+  - Added a derived not-found state for `#list/<folderId>` when the requested list is absent after local hydration.
+  - Updated the hero, metadata panel, recovery panel, and main content area to render a 404-style list-not-found page with a back action and the requested id.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/pwa/src/App.tsx`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+### Phase 3: Testing & Verification
+- **Status:** complete
+- Actions taken:
+  - Ran `pnpm --filter @kakao-lists/pwa build` successfully.
+  - Ran `pnpm typecheck` successfully from the repo root.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+## Session: 2026-05-14 (PWA And Extension Theme Preference)
+
+### Phase 1: Requirements & Discovery
+- **Status:** complete
+- Actions taken:
+  - Read the `nothing-design-codex` and `i-audit` guidance referenced in the session.
+  - Inspected the PWA and extension entry points, settings surfaces, and current style-token usage.
+  - Chose a three-state persisted preference (`system`, `light`, `dark`) with per-surface local storage keys and runtime resolution from `prefers-color-scheme`.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+### Phase 2: Implementation
+- **Status:** complete
+- Actions taken:
+  - Added theme bootstrap modules for the PWA and extension and initialized them at app startup.
+  - Added segmented theme controls to the PWA settings page and the extension options page.
+  - Refactored both style systems toward tokenized light/dark modes with Nothing-style segmented controls and flatter monochrome surfaces.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/pwa/src/theme.ts`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/extension/src/theme.ts`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/pwa/src/main.tsx`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/extension/src/popup-main.tsx`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/extension/src/options-main.tsx`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/pwa/src/App.tsx`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/extension/src/OptionsApp.tsx`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/pwa/src/styles.css`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/extension/src/styles.css`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+### Phase 3: Testing & Verification
+- **Status:** complete
+- Actions taken:
+  - Ran `pnpm --filter @kakao-lists/pwa build` successfully.
+  - Ran `pnpm --filter @kakao-lists/extension build` successfully.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+## Session: 2026-05-13 (PWA Header And Settings Navigation)
+
+### Phase 1: Requirements & Discovery
+- **Status:** complete
+- Actions taken:
+  - Read the planning-with-files skill and resumed from the existing project planning files.
+  - Inspected the PWA `App.tsx` and confirmed it already uses hash-based navigation for list/place deep links.
+  - Determined the settings page could be added as a hash view without introducing a router dependency.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/task_plan.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+### Phase 2: Implementation
+- **Status:** complete
+- Actions taken:
+  - Reworked the PWA route parsing so authenticated navigation supports overview, settings, and list/place views from the existing hash model.
+  - Added a fixed top header with back, settings, and logout icon actions.
+  - Moved session information and cloud sync controls onto a dedicated settings page while keeping the overview focused on saved lists plus the main pull CTA.
+  - Updated logout to clear the session and return to the overview page.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/pwa/src/App.tsx`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/pwa/src/styles.css`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/task_plan.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+### Phase 3: Testing & Verification
+- **Status:** complete
+- Actions taken:
+  - Ran `pnpm --filter @kakao-lists/pwa build` successfully.
+  - Ran `pnpm exec tsc -b apps/pwa` successfully.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/task_plan.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+## Session: 2026-05-13 (PWA Deep-Link Route Fix)
+
+### Phase 1: Requirements & Discovery
+- **Status:** complete
+- Actions taken:
+  - Inspected the PWA route bootstrap after the extension `Open in PWA` action reported landing on the overview page.
+  - Identified the root cause in the `selectedListId && !selectedList` effect, which was clearing `#list/...` before local snapshot hydration finished.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+### Phase 2: Implementation
+- **Status:** complete
+- Actions taken:
+  - Added a local hydration flag in the PWA.
+  - Delayed the invalid-route fallback until local snapshot hydration completes and at least one list exists in memory.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/pwa/src/App.tsx`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+### Phase 3: Testing & Verification
+- **Status:** complete
+- Actions taken:
+  - Ran `pnpm typecheck` successfully from the repo root.
+  - Ran `pnpm --filter @kakao-lists/pwa build` successfully.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+## Session: 2026-05-13 (Stored List Actions And Deleted Folder Filtering)
+
+### Phase 1: Requirements & Discovery
+- **Status:** complete
+- Actions taken:
+  - Inspected the extension stored-lists screen and confirmed it rendered only name/count with no direct navigation action.
+  - Verified the current Kakao Maps importer already skips folder records where `status === "D"`.
+  - Identified the remaining deleted-folder issue as stale snapshot data, based on placeholder rows like `Folder 2052505` still being present in stored/server snapshots.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+### Phase 2: Implementation
+- **Status:** complete
+- Actions taken:
+  - Added an `Open in PWA` action to each row in the extension stored-lists panel.
+  - Extended the extension PWA URL builder so it can open a list route with or without a pinned item id.
+  - Added defensive snapshot sanitizing in both the extension and PWA so stale deleted-folder placeholders are filtered out on hydration, server pulls, imports, and note-save refreshes.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/extension/src/PopupApp.tsx`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/extension/src/styles.css`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/pwa/src/App.tsx`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+### Phase 3: Testing & Verification
+- **Status:** complete
+- Actions taken:
+  - Ran `pnpm typecheck` successfully from the repo root.
+  - Ran `pnpm --filter @kakao-lists/extension build` successfully.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+## Session: 2026-05-13 (Extension Options Management Actions)
+
+### Phase 1: Requirements & Discovery
+- **Status:** complete
+- Actions taken:
+  - Inspected the current popup and options screens for the extension.
+  - Confirmed the popup still held pull/sign-out controls while the options page was only static setup text.
+  - Verified the extension storage layer had no explicit clear method, so local cleanup needed to target the extension storage keys directly.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+### Phase 2: Implementation
+- **Status:** complete
+- Actions taken:
+  - Removed `Pull Server Copy` and `Sign Out` from the default popup view, leaving the popup focused on import plus navigation to options.
+  - Reworked the options page into a functional management screen with three actions: `Pull Server Data`, `Sign Out`, and `Clear All Local Data`.
+  - Added options-page state hydration for stored list count, last synced time, and current session visibility.
+  - Implemented local-data clearing for the extension snapshot cache and device id while leaving the server snapshot untouched.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/extension/src/PopupApp.tsx`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/extension/src/OptionsApp.tsx`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/extension/src/styles.css`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+### Phase 3: Testing & Verification
+- **Status:** complete
+- Actions taken:
+  - Ran `pnpm typecheck` successfully from the repo root.
+  - Ran `pnpm --filter @kakao-lists/extension build` successfully.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+## Session: 2026-05-12 (Extension Place-View Local Note Editing Verification)
+
+### Phase 1: Requirements & Discovery
+- **Status:** complete
+- Actions taken:
+  - Re-read the planning-with-files skill and current planning files as required by repo instructions.
+  - Inspected the current extension popup implementation for the place-page view.
+  - Confirmed the popup already contains editable local-note inputs, a save action, and the local-plus-remote persistence path.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+### Phase 2: Testing & Verification
+- **Status:** complete
+- Actions taken:
+  - Ran `pnpm typecheck` successfully from the repo root.
+  - Ran `pnpm --filter @kakao-lists/extension build` successfully.
+  - Verified the save path writes the returned snapshot back into extension-local storage and popup state in the current source.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+## Session: 2026-05-12 (Extension Kakao Sign-In Redirect)
+
+### Phase 1: Requirements & Discovery
+- **Status:** complete
+- Actions taken:
+  - Read the planning-with-files skill and existing planning files as required by repo instructions.
+  - Inspected the extension popup auth flow and confirmed it uses `chrome.identity.launchWebAuthFlow`.
+  - Matched the UI error to the exact `chromiumapp.org` callback URI that Kakao expects to be pre-registered.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/task_plan.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+### Phase 2: Planning & Structure
+- **Status:** complete
+- Actions taken:
+  - Determined the auth code path itself was correct and that the main issue was redirect registration and extension-id drift.
+  - Chose to add build-time support for a stable manifest `key` instead of changing the OAuth flow.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/task_plan.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+
+### Phase 3: Implementation
+- **Status:** complete
+- Actions taken:
+  - Updated the popup to display the exact Kakao callback URI and mention `EXTENSION_PUBLIC_KEY`.
+  - Updated the options page with the exact redirect URI and setup guidance.
+  - Added a Vite post-build step that writes `manifest.json` with an optional `key` from `EXTENSION_PUBLIC_KEY`.
+  - Documented the new env variable and setup note in `.env.example` and `README.md`.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/extension/src/PopupApp.tsx`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/extension/src/OptionsApp.tsx`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/extension/src/styles.css`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/extension/vite.config.ts`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/.env.example`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/README.md`
+
+### Phase 4: Testing & Verification
+- **Status:** complete
+- Actions taken:
+  - Ran `pnpm --filter @kakao-lists/extension build` successfully.
+  - Ran `pnpm exec tsc --noEmit -p apps/extension/tsconfig.json` successfully.
+  - Verified `apps/extension/dist/manifest.json` omits `key` by default.
+  - Verified rebuilding with `EXTENSION_PUBLIC_KEY=test-key` writes `"key": "test-key"` into the built manifest.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/task_plan.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+### Phase 5: Delivery
+- **Status:** complete
+- Actions taken:
+  - Summarized the root cause as Kakao redirect registration plus extension-id drift.
+  - Delivered the code changes and the exact next Kakao Developers setup steps to the user.
+  - Added a dedicated markdown guide for generating `EXTENSION_PUBLIC_KEY` and linked it from the README.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/task_plan.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/docs/extension-public-key.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/README.md`
+
 ## Session: 2026-05-10
 
 ### Phase 1: Requirements & Discovery
@@ -218,6 +631,153 @@
   - Chose pnpm as the single package manager and workspace source of truth.
 - Files created/modified:
   - `/Users/josemiguel/workspace-personal/kakao-lists/task_plan.md`
+
+## Session: 2026-05-12 (Kakao Maps Private Endpoint Inspection)
+
+### Phase 1: Requirements & Discovery
+- **Status:** complete
+- Actions taken:
+  - Re-opened the existing Kakao Maps product in Brave while logged into a real Kakao Maps account.
+  - Verified that the visible saved place groups in the UI matched the user’s screenshot and were rendered inside the Kakao Maps "MY" favorites area.
+  - Opened Brave DevTools and inspected live Fetch/XHR traffic for the favorites UI.
+  - Confirmed that Kakao Maps uses private web endpoints for folder metadata and per-folder place contents.
+  - Captured representative response shapes for both the folder list and a specific folder’s places.
+- Findings captured:
+  - `GET https://map.kakao.com/folder/list` returns folder metadata including `folderid`, `title`, `status`, counts, timestamps, and some owner/subscription metadata.
+  - `GET https://map.kakao.com/favorite/mine/list?folderid=<folderid>` returns a `favorites` array of saved places with place name, address, coordinates, place key, and timestamps.
+  - The requests appear to rely on the authenticated browser session/cookies, not the public Kakao Login REST token already used by the app scaffold.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+## Session: 2026-05-12 (Extension-Based Kakao Maps Import)
+
+### Phase 3: Implementation
+- **Status:** complete
+- Actions taken:
+  - Added an extension-side Kakao Maps extractor that looks for an open `map.kakao.com` tab and executes a private-endpoint import in that tab context.
+  - Normalized Kakao Maps folders and folder-place responses into the shared `SyncSnapshot` format used by the rest of the app.
+  - Reworked the extension popup flow so each authenticated popup load prefers a live Kakao Maps import and otherwise falls back to the latest server snapshot.
+  - Added the extension permissions needed for `map.kakao.com` tab discovery and script execution.
+  - Updated the extension options copy and README to document the new extraction path and its limitations.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/extension/src/kakaoMapsExtractor.ts`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/extension/src/PopupApp.tsx`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/extension/public/manifest.json`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/extension/src/OptionsApp.tsx`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/README.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/task_plan.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+### Phase 4: Testing & Verification
+- **Status:** complete
+- Actions taken:
+  - Fixed a React handler type mismatch in the popup after the initial extractor refactor.
+  - Re-ran full workspace typecheck successfully.
+  - Re-ran full workspace build successfully.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/extension/src/PopupApp.tsx`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+## Session: 2026-05-12 (PWA Overview and Detail Pages)
+
+### Phase 3: Implementation
+- **Status:** complete
+- Actions taken:
+  - Added optional `description` and `creatorName` metadata to the shared `FavoriteList` model.
+  - Updated the Kakao Maps extension importer to preserve folder memo and creator fields when Kakao exposes them.
+  - Reworked the PWA so the main page shows only list overview cards instead of all places inline.
+  - Added a dedicated list-detail route using URL hash navigation so clicking a list opens a separate place listing page.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/packages/domain/src/index.ts`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/extension/src/kakaoMapsExtractor.ts`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/pwa/src/App.tsx`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/pwa/src/styles.css`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+
+### Phase 4: Testing & Verification
+- **Status:** complete
+- Actions taken:
+  - Re-ran full workspace typecheck successfully after the shared model and PWA routing changes.
+  - Re-ran full workspace build successfully for server, PWA, and extension.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+## Session: 2026-05-12 (Snapshot Ownership Split)
+
+### Phase 3: Implementation
+- **Status:** complete
+- Actions taken:
+  - Removed the extension popup’s automatic import-on-open behavior so Kakao Maps fetching only runs when the user clicks the import button.
+  - Reworked the PWA into a read-only snapshot viewer that pulls the latest server snapshot instead of calling Kakao sync or pushing snapshots itself.
+  - Updated the README and findings to reflect that snapshot creation belongs only to the extension.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/extension/src/PopupApp.tsx`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/pwa/src/App.tsx`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/README.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+
+### Phase 4: Testing & Verification
+- **Status:** complete
+- Actions taken:
+  - Re-ran full workspace typecheck successfully after the snapshot-ownership changes.
+  - Re-ran full workspace build successfully for server, PWA, and extension.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+## Session: 2026-05-12 (Imported and Local Place Notes)
+
+### Phase 3: Implementation
+- **Status:** complete
+- Actions taken:
+  - Split place item metadata into `subtitle`, imported `kakaoNote`, and editable `localNote`.
+  - Updated the Kakao Maps extension importer to preserve the Kakao memo field separately from the address/detail line.
+  - Added a protected server endpoint that updates one item’s `localNote` inside the stored snapshot and persists it as a new snapshot version.
+  - Added PWA detail-page inputs and save actions for per-place local notes stored on the sync server.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/packages/domain/src/index.ts`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/packages/sync/src/index.ts`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/server/src/index.ts`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/extension/src/kakaoMapsExtractor.ts`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/pwa/src/App.tsx`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/pwa/src/styles.css`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+
+### Phase 4: Testing & Verification
+- **Status:** complete
+- Actions taken:
+  - Fixed a TypeScript narrowing issue in the new server local-note endpoint.
+  - Re-ran full workspace typecheck successfully.
+  - Re-ran full workspace build successfully for server, PWA, and extension.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/server/src/index.ts`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+## Session: 2026-05-12 (Place Page Popup View)
+
+### Phase 3: Implementation
+- **Status:** complete
+- Actions taken:
+  - Added a stable `placeKey` to saved-place items so the extension can match active Kakao place pages against stored snapshot entries.
+  - Updated the extension popup to detect `https://place.map.kakao.com/<id>` pages and render a place-centric view instead of the generic import UI.
+  - Added a place-membership view that shows all lists containing the current place plus imported Kakao note and server-stored local note.
+  - Added explicit new-tab opening for saved place links from the popup.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/packages/domain/src/index.ts`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/extension/src/kakaoMapsExtractor.ts`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/server/src/index.ts`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/extension/src/PopupApp.tsx`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/extension/src/styles.css`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+
+### Phase 4: Testing & Verification
+- **Status:** complete
+- Actions taken:
+  - Re-ran full workspace typecheck successfully after the place-page popup branch and item key additions.
+  - Re-ran full workspace build successfully for server, PWA, and extension.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
   - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
 
 ### Phase 3: Implementation

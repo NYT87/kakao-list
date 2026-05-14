@@ -1,12 +1,15 @@
 # Kakao Lists
 
+> [!IMPORTANT]
+> Kakao and related names, logos, services, and other marks are trademarks or registered trademarks of their respective owners. This project is an independent, open-source tool and is not made by, affiliated with, endorsed by, sponsored by, or approved by Kakao.
+
 Kakao Lists is a pnpm workspace monorepo for a browser-based project that combines:
 
 - a Chrome/Brave extension
 - a PWA
 - a sync server for cross-device data transfer
 - Kakao OAuth wiring
-- local synced list storage behind a browser-compatible SQLite abstraction
+- local synced list storage behind a browser-compatible persistence abstraction
 
 ## Architecture
 
@@ -14,7 +17,7 @@ Kakao Lists is a pnpm workspace monorepo for a browser-based project that combin
 apps/
   extension/    Manifest V3 shell for popup, options, and background sync hooks
   pwa/          Web app shell with Kakao OAuth entry and synced list dashboard
-  server/       SQLite-backed sync API for snapshot upload/download across devices
+  server/       Postgres-backed sync API for snapshot upload/download across devices
 packages/
   domain/       Shared types, sync contracts, and mock data adapter
   kakao/        Kakao OAuth URL/building helpers and callback parsing
@@ -48,9 +51,46 @@ Both the web app and the extension now open on a Kakao sign-in screen.
 
 - If there is no session, the first screen is a single primary action: `Sign in with Kakao`.
 - If there is an active session, the UI opens directly on the saved lists page.
-- On each authenticated load, the client asks the server to sync from Kakao, stores the returned snapshot locally, and then renders the saved lists.
+- The web app is now a read-only viewer of the latest server snapshot and does not create fresh snapshots from Kakao Maps.
+- The extension is the only client that creates fresh snapshots from Kakao Maps, and it only imports when the user clicks the popup import button.
 
 The current Kakao list import is still mocked on the server until the exact production list endpoint is verified.
+
+## Kakao Maps Extraction
+
+The extension now contains the first practical extraction path for Kakao Maps "places lists".
+
+- It looks for an open `https://map.kakao.com/*` tab that is already signed in.
+- It calls the private Kakao Maps web endpoints observed in the browser session:
+  - `GET /folder/list`
+  - `GET /favorite/mine/list?folderid=<folderid>`
+- It normalizes the returned folders and places into the shared `SyncSnapshot` shape.
+- It stores that snapshot locally in the extension and then uploads it to the sync server under the authenticated Kakao user.
+- It does not run automatically on popup open; imports only happen when the user clicks `Import from Kakao Maps`.
+
+This path is intentionally experimental:
+
+- it depends on Kakao Maps private web endpoints
+- it depends on the browser session being signed into Kakao Maps
+- it can break when Kakao changes the site
+- it is distinct from the public Kakao Login REST flow already used for your sync-server identity
+
+## Local Mock Auth
+
+For local development without real Kakao credentials:
+
+1. Set `VITE_ENABLE_MOCK_AUTH=true`
+2. Set `ALLOW_MOCK_AUTH=true`
+3. Start the server and web app
+4. Click `Use Mock Sign In` on the first page
+
+This creates a dev-only server session and lets you test the saved-lists flow without a real Kakao OAuth round-trip.
+
+If you do not need any optional Kakao profile fields, leave:
+
+```dotenv
+VITE_KAKAO_SCOPE=
+```
 
 ## Kakao Scope
 
@@ -62,12 +102,6 @@ This scaffold supports the start of Kakao auth from browser surfaces and capture
 
 ```bash
 pnpm install
-```
-
-If pnpm blocks native dependency scripts, approve the SQLite build once:
-
-```bash
-pnpm approve-builds
 ```
 
 2. Create your env file from the example values below:
@@ -90,7 +124,13 @@ pnpm dev:pwa
 pnpm dev:server
 ```
 
-6. Start the extension build/dev flow:
+6. Start local Postgres if you want the server database via Docker Compose:
+
+```bash
+docker compose up -d postgres
+```
+
+7. Start the extension build/dev flow:
 
 ```bash
 pnpm dev:extension
@@ -100,11 +140,35 @@ pnpm dev:extension
 
 - Register the web redirect URI from `VITE_KAKAO_REDIRECT_URI` in your Kakao app.
 - For the extension flow, register the Chrome identity redirect URI returned by `chrome.identity.getRedirectURL("kakao")` for your installed extension id.
-- Set `KAKAO_REST_API_KEY`, `KAKAO_CLIENT_SECRET`, and `SYNC_SERVER_SIGNING_SECRET` on the server before using sign-in.
+- If you want that extension redirect URI to stay stable across local reinstalls, set `EXTENSION_PUBLIC_KEY` before building the extension. Chrome derives the extension id, and therefore the `chromiumapp.org` callback URI, from that key.
+- Full instructions for generating `EXTENSION_PUBLIC_KEY` are in [docs/extension-public-key.md](/Users/josemiguel/workspace-personal/kakao-lists/docs/extension-public-key.md).
+- Set `DATABASE_URL`, `KAKAO_REST_API_KEY`, `KAKAO_CLIENT_SECRET`, and `SYNC_SERVER_SIGNING_SECRET` on the server before using sign-in.
 
 ## Environment Variables
 
 See [.env.example](/Users/josemiguel/workspace-personal/kakao-lists/.env.example).
+
+## Local Postgres With Docker Compose
+
+The repo now includes a Postgres service for local development:
+
+```bash
+docker compose up -d postgres
+```
+
+It exposes:
+
+- host: `localhost`
+- port: `5432`
+- database: `kakao_lists`
+- user: `postgres`
+- password: `postgres`
+
+The matching server connection string is:
+
+```dotenv
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/kakao_lists
+```
 
 ## Next Implementation Steps
 
