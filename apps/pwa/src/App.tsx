@@ -7,6 +7,7 @@ import {
 import { buildKakaoAuthorizeUrl, isKakaoConfigured, readKakaoCallback } from "@kakao-lists/kakao";
 import { LocalStorageFavoriteListsRepository } from "@kakao-lists/storage";
 import { HttpCloudSyncClient } from "@kakao-lists/sync";
+import { requestPwaUpdate, subscribeToPwaUpdateAvailability } from "./pwaUpdate";
 import {
   readThemePreference,
   type ThemePreference,
@@ -49,6 +50,8 @@ export default function App() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [hasHydratedLocalSnapshot, setHasHydratedLocalSnapshot] = useState(false);
   const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [updateAvailable, setUpdateAvailable] = useState(false);
+  const [isApplyingUpdate, setIsApplyingUpdate] = useState(false);
 
   const cloudSync = useMemo(() => {
     return syncServerUrl
@@ -188,6 +191,15 @@ export default function App() {
       window.clearTimeout(timeoutId);
     };
   }, [toastMessage]);
+
+  useEffect(() => {
+    return subscribeToPwaUpdateAvailability(({ available }) => {
+      setUpdateAvailable(available);
+      if (!available) {
+        setIsApplyingUpdate(false);
+      }
+    });
+  }, []);
 
   async function hydrate() {
     const [savedLists, syncedAt] = await Promise.all([
@@ -397,6 +409,18 @@ export default function App() {
     writeThemePreference(nextPreference);
   }
 
+  function applyPwaUpdate() {
+    if (!requestPwaUpdate()) {
+      setUpdateAvailable(false);
+      setIsApplyingUpdate(false);
+      setToastMessage("No new version is ready yet");
+      return;
+    }
+
+    setIsApplyingUpdate(true);
+    setToastMessage("Updating app…");
+  }
+
   async function saveLocalNote(listId: string, itemId: string) {
     if (!cloudSync || !cloudSession) {
       setStatus("error");
@@ -575,6 +599,31 @@ export default function App() {
               ))}
             </div>
             <p className="panel-copy">Default follows your device setting.</p>
+          </article>
+
+          <article className="panel">
+            <h2>App Update</h2>
+            <dl className="meta-list update-meta">
+              <div>
+                <dt>Status</dt>
+                <dd>{updateAvailable ? "New version ready" : "Up to date"}</dd>
+              </div>
+            </dl>
+            <div className="hero-actions compact update-actions">
+              <button
+                className="button primary"
+                disabled={!updateAvailable || isApplyingUpdate || isBusy}
+                onClick={applyPwaUpdate}
+                type="button"
+              >
+                {isApplyingUpdate ? "Updating…" : "Update now"}
+              </button>
+            </div>
+            <p className="panel-copy">
+              {updateAvailable
+                ? "A newer app version has been downloaded and is ready to activate."
+                : "This device is already using the latest downloaded app version."}
+            </p>
           </article>
 
           <article className="panel">

@@ -409,6 +409,10 @@ h3 {
   color: var(--muted);
 }
 
+.update-actions {
+  margin-bottom: 0;
+}
+
 .bullet-list {
   margin: 0;
   padding-left: 18px;

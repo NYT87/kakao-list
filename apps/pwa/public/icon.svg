@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Kakao Lists">
+  <rect width="512" height="512" rx="120" fill="#fff7f2" />
+  <rect x="72" y="72" width="368" height="368" rx="104" fill="#1a1a1a" />
+  <path d="M184 152v208h40v-86l76 86h52l-94-104 88-104h-50l-72 84v-84Z" fill="#fff7f2" />
+  <path d="M154 150h26v212h-26z" fill="#ff5b2e" />
+</svg>
