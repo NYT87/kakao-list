@@ -1,5 +1,94 @@
 # Progress Log
 
+## Session: 2026-05-14 (Vercel Deployment Readiness)
+
+### Phase 1: Requirements & Discovery
+- **Status:** complete
+- Actions taken:
+  - Read the `planning-with-files` skill and ran the session catchup script.
+  - Confirmed the previous planning files were stale for this request and captured the unsynced context from the earlier Vercel deployment discussion.
+  - Inspected the current server entrypoint, package metadata, PWA Vite config, environment variables, and README deployment guidance.
+  - Identified the main repo-side blocker as the server’s local-only `app.listen(...)` entrypoint shape.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/task_plan.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+### Phase 2: Planning & Findings
+- **Status:** complete
+- Actions taken:
+  - Replaced `task_plan.md` with a new plan for the Vercel deployment work.
+  - Recorded the Vercel deployment findings and implementation decisions in `findings.md`.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/task_plan.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+### Phase 3: Implementation
+- **Status:** complete
+- Actions taken:
+  - Refactored the sync server entrypoint so the Express app can be imported safely without auto-starting a listener.
+  - Added a one-time readiness guard for Postgres schema initialization that works for both local startup and Vercel cold starts.
+  - Added a Vercel API entrypoint and server `vercel.json` routing config.
+  - Added a minimal PWA `vercel.json` and documented the full Vercel deployment flow in `README.md`.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/server/src/index.ts`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/server/api/index.ts`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/server/vercel.json`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/server/tsconfig.json`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/pwa/vercel.json`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/README.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/task_plan.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+### Phase 4: Testing & Verification
+- **Status:** complete
+- Actions taken:
+  - Ran `pnpm --filter @kakao-lists/server build` successfully.
+  - Ran `pnpm --filter @kakao-lists/pwa build` successfully.
+  - Ran `pnpm typecheck` successfully from the repo root.
+  - Later extended the deployment pass to cover the extension production API configuration.
+  - Ran `pnpm --filter @kakao-lists/extension build` successfully after wiring manifest host permissions from `VITE_SYNC_SERVER_URL`.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/task_plan.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+## Session: 2026-05-14 (Kakao-Backed Backend Auth Hardening)
+
+### Phase 1: Requirements & Discovery
+- **Status:** complete
+- Actions taken:
+  - Re-inspected the server auth flow, the shared sync client, and the stored `CloudSession` contract.
+  - Confirmed that protected routes currently trust only the server-issued signed session token after login.
+  - Chose a server-side Kakao validation flow with refresh fallback, rather than forcing raw Kakao bearer tokens into the PWA and extension clients.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/task_plan.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+### Phase 2: Implementation
+- **Status:** complete
+- Actions taken:
+  - Replaced the old protected-route session check with an async Kakao-backed session validator.
+  - Required a Kakao token record for each protected request and preserved the existing `ALLOW_MOCK_AUTH` local dev path.
+  - Added server-side Kakao profile verification on protected requests, plus refresh-token fallback when the Kakao access token is no longer valid.
+  - Preserved existing refresh tokens during token upserts when Kakao refresh responses omit a new refresh token.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/server/src/index.ts`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/task_plan.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+### Phase 3: Testing & Verification
+- **Status:** complete
+- Actions taken:
+  - Ran `pnpm --filter @kakao-lists/server build` successfully.
+  - Ran `pnpm typecheck` successfully from the repo root.
+  - Ran a final `pnpm --filter @kakao-lists/server build` successfully after tightening Kakao refresh error mapping.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/task_plan.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
 ## Session: 2026-05-14 (Server Postgres Migration)
 
 ### Phase 1: Requirements & Discovery

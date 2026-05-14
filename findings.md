@@ -212,3 +212,52 @@
 - Use `/i-harden` for corrupted-storage handling, duplicate-action prevention, overflow resilience, and i18n-safe formatting.
 - Use `/i-audit` again after the next UI iteration to verify that invalid-route and offline states are fully covered.
 - Use `/i-polish` later if you want to revisit compact touch-target compromises without expanding the current layouts.
+
+## Vercel Deployment Readiness: 2026-05-14
+
+### Key Findings
+- The repo should deploy to Vercel as two projects, not one:
+  - `apps/pwa` for the Vite-built web app
+  - `apps/server` for the sync API
+- The PWA is already structurally close to Vercel-ready because it builds to static assets and uses hash-based navigation, so it does not need SPA rewrites for deep links.
+- The server is not yet ideally Vercel-shaped in its current form because the only public entrypoint is a long-running `app.listen(...)` bootstrap in `apps/server/src/index.ts`.
+- The server no longer depends on local SQLite files, which removes the major persistence blocker for Vercel deployment.
+- Both projects depend on workspace packages outside their app directories, so Vercel imports must enable source access outside the selected root directory.
+
+### Technical Decisions
+| Decision | Rationale |
+|----------|-----------|
+| Split the server into a reusable Express app module and separate local/Vercel entrypoints | Local development still needs a listener, while Vercel needs a request handler shape |
+| Initialize the Postgres schema through a shared one-time readiness guard | Both local startup and serverless cold starts need the same database bootstrap behavior |
+| Add a server `vercel.json` that routes all requests to a single API handler | The current API is a small Express app with one unified route surface |
+| Keep PWA Vercel configuration minimal and rely mostly on documented dashboard settings | The app already uses static assets and hash routing, so extra rewrites are unnecessary |
+
+### Remaining Manual Deployment Steps
+1. Create one Vercel project rooted at `apps/pwa` and one rooted at `apps/server`.
+2. Enable “Include source files outside of the Root Directory” on both projects.
+3. Configure the documented environment variables separately for each project.
+4. Point the PWA `VITE_SYNC_SERVER_URL` at the deployed API domain and redeploy the PWA.
+5. Build the extension with that same `VITE_SYNC_SERVER_URL` so its generated manifest includes the deployed API origin in `host_permissions`.
+
+### Extension-Specific Deployment Finding
+- The extension already used `VITE_SYNC_SERVER_URL` at runtime, but its checked-in manifest only granted host permissions for localhost.
+- Without adding the deployed API origin to `host_permissions`, the extension could fail to sync against a Vercel-hosted API even though the runtime base URL was configured correctly.
+- The extension build now derives an additional manifest host permission from `VITE_SYNC_SERVER_URL`, so one env value drives both the runtime client base URL and the permitted API origin.
+
+## Kakao-Backed Backend Auth Hardening: 2026-05-14
+
+### Key Findings
+- Protected API routes currently validate only the server-issued signed session token, not the continued validity of the Kakao token stored for that user.
+- The server already stores both Kakao `access_token` and optional `refresh_token`, so it has enough data to enforce Kakao-backed authorization server-side.
+- The cleanest hardening path is:
+  - verify the signed backend session
+  - require a Kakao token record for that Kakao user id
+  - validate the Kakao access token by calling Kakao user-info
+  - if validation fails, try refresh-token exchange and retry validation
+  - reject the request if the Kakao identity cannot be re-proven
+
+### Technical Decision
+| Decision | Rationale |
+|----------|-----------|
+| Enforce Kakao-backed authorization on every protected sync route | This is the most direct interpretation of “backend auth using the Kakao token” and closes the current trust gap |
+| Keep the client-facing bearer token as the server-issued session token | This avoids forcing the PWA and extension to manage raw Kakao tokens directly while still letting the server prove Kakao identity |

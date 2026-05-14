@@ -148,6 +148,77 @@ pnpm dev:extension
 
 See [.env.example](/Users/josemiguel/workspace-personal/kakao-lists/.env.example).
 
+## Deploying To Vercel
+
+Deploy the PWA and sync API as two separate Vercel projects from the same repo.
+
+### 1. Create the PWA project
+
+- Root Directory: `apps/pwa`
+- Build Command: `pnpm build`
+- Output Directory: `dist`
+- Install Command: `pnpm install`
+
+Recommended PWA environment variables:
+
+```dotenv
+VITE_KAKAO_REST_API_KEY=your_kakao_rest_api_key
+VITE_KAKAO_REDIRECT_URI=https://your-pwa-domain/auth/kakao/callback
+VITE_KAKAO_SCOPE=
+VITE_PWA_BASE_URL=https://your-pwa-domain
+VITE_SYNC_SERVER_URL=https://your-api-domain
+VITE_ENABLE_MOCK_AUTH=false
+```
+
+### 2. Create the API project
+
+- Root Directory: `apps/server`
+- Build Command: `pnpm build`
+- Install Command: `pnpm install`
+
+Recommended API environment variables:
+
+```dotenv
+DATABASE_URL=postgres://...
+KAKAO_REST_API_KEY=your_kakao_rest_api_key
+KAKAO_CLIENT_SECRET=your_kakao_client_secret
+SYNC_SERVER_SIGNING_SECRET=replace_with_a_long_random_secret
+ALLOW_MOCK_AUTH=false
+```
+
+The server project now includes [apps/server/vercel.json](/Users/josemiguel/workspace-personal/kakao-lists/apps/server/vercel.json), which routes all requests through a single Vercel function backed by the shared Express app.
+
+### 3. Enable monorepo source access
+
+Both projects import shared workspace packages from `/packages`, so in each Vercel project you must enable:
+
+- `Include source files outside of the Root Directory`
+
+Without that setting, the selected app directory cannot see the shared workspace packages during the Vercel build.
+
+### 4. Connect the deployed domains
+
+After the API is deployed:
+
+1. Copy the API domain.
+2. Set `VITE_SYNC_SERVER_URL` in the PWA project to that domain.
+3. Set the same `VITE_SYNC_SERVER_URL` value in the extension build environment.
+4. Rebuild the extension so its manifest includes the deployed API origin in `host_permissions`.
+5. Redeploy the PWA.
+
+For the extension, `VITE_SYNC_SERVER_URL` now serves two purposes:
+
+- runtime base URL for `HttpCloudSyncClient`
+- build-time source for the API `host_permissions` entry in the generated extension manifest
+
+If the API domain changes, rebuild the extension before loading or publishing it.
+
+### Notes
+
+- The extension is not deployed on Vercel. Build and load it separately.
+- The PWA uses hash-based navigation, so it does not need SPA rewrite rules for list or place routes.
+- The API still initializes its Postgres tables on startup/cold start, so `DATABASE_URL` must point to a writable Postgres instance before the first request.
+
 ## Local Postgres With Docker Compose
 
 The repo now includes a Postgres service for local development:

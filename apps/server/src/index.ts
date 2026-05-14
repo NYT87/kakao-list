@@ -36,6 +36,38 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: "1mb" }));
 
+let initializationPromise: Promise<void> | null = null;
+
+interface KakaoTokenRecord {
+  accessToken: string;
+  refreshToken: string | null;
+  scope: string | null;
+  updatedAt: string;
+}
+
+interface AuthenticatedSession {
+  session: CloudSession;
+  tokenRecord: KakaoTokenRecord;
+}
+
+class HttpStatusError extends Error {
+  constructor(
+    readonly status: number,
+    message: string
+  ) {
+    super(message);
+  }
+}
+
+class KakaoApiError extends Error {
+  constructor(
+    readonly status: number,
+    message: string
+  ) {
+    super(message);
+  }
+}
+
 app.get("/health", async (_request, response) => {
   try {
     await pool.query("SELECT 1");
@@ -99,19 +131,13 @@ app.post("/api/auth/mock", async (request, response) => {
 });
 
 app.post("/api/sync/kakao", async (request, response) => {
-  const session = requireSession(request, response);
-  if (!session) {
+  const auth = await requireAuthenticatedSession(request, response);
+  if (!auth) {
     return;
   }
 
   try {
-    const tokenRecord = await getKakaoTokenRecord(session.user.id);
-
-    if (!tokenRecord) {
-      response.status(404).send("No Kakao token record exists for this user.");
-      return;
-    }
-
+    const { session, tokenRecord } = auth;
     const snapshot = buildMockKakaoSnapshot(session.user.id);
     const result = await saveLatestSnapshot({
       userId: session.user.id,
@@ -129,12 +155,13 @@ app.post("/api/sync/kakao", async (request, response) => {
 });
 
 app.get("/api/snapshot", async (request, response) => {
-  const session = requireSession(request, response);
-  if (!session) {
+  const auth = await requireAuthenticatedSession(request, response);
+  if (!auth) {
     return;
   }
 
   try {
+    const { session } = auth;
     const row = await getLatestSnapshotRow(session.user.id);
     const result: PullSnapshotResult = row
       ? {
@@ -159,8 +186,8 @@ app.get("/api/snapshot", async (request, response) => {
 });
 
 app.put("/api/snapshot", async (request, response) => {
-  const session = requireSession(request, response);
-  if (!session) {
+  const auth = await requireAuthenticatedSession(request, response);
+  if (!auth) {
     return;
   }
 
@@ -171,6 +198,7 @@ app.put("/api/snapshot", async (request, response) => {
   }
 
   try {
+    const { session } = auth;
     const validatedSnapshot = validateSnapshot(body.snapshot);
     const result = await saveLatestSnapshot({
       userId: session.user.id,
@@ -185,8 +213,8 @@ app.put("/api/snapshot", async (request, response) => {
 });
 
 app.patch("/api/snapshot/item-note", async (request, response) => {
-  const session = requireSession(request, response);
-  if (!session) {
+  const auth = await requireAuthenticatedSession(request, response);
+  if (!auth) {
     return;
   }
 
@@ -197,6 +225,7 @@ app.patch("/api/snapshot/item-note", async (request, response) => {
   }
 
   try {
+    const { session } = auth;
     const current = await getLatestSnapshotRow(session.user.id);
     if (!current) {
       response.status(404).send("No snapshot exists for this user yet.");
@@ -248,12 +277,19 @@ app.patch("/api/snapshot/item-note", async (request, response) => {
   }
 });
 
-void startServer();
+export default app;
+export { ensureServerReady };
+
+const isDirectRun =
+  Boolean(process.argv[1]) && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+
+if (isDirectRun) {
+  void startServer();
+}
 
 async function startServer() {
   try {
-    await initializeDatabase();
-    console.info(`Connected to Postgres at ${formatDatabaseTarget(databaseUrl)}`);
+    await ensureServerReady();
     app.listen(port, () => {
       console.info(`Kakao Lists sync server listening on http://localhost:${port}`);
     });
@@ -261,6 +297,16 @@ async function startServer() {
     console.error(error instanceof Error ? error.message : "Failed to start the sync server.");
     process.exitCode = 1;
   }
+}
+
+function ensureServerReady() {
+  if (!initializationPromise) {
+    initializationPromise = initializeDatabase().then(() => {
+      console.info(`Connected to Postgres at ${formatDatabaseTarget(databaseUrl)}`);
+    });
+  }
+
+  return initializationPromise;
 }
 
 async function initializeDatabase() {
@@ -295,7 +341,7 @@ async function initializeDatabase() {
   `);
 }
 
-async function getKakaoTokenRecord(userId: string) {
+async function getKakaoTokenRecord(userId: string): Promise<KakaoTokenRecord | null> {
   const result = await pool.query<{
     access_token: string;
     refresh_token: string | null;
@@ -368,7 +414,7 @@ async function saveKakaoTokens(
       VALUES ($1, $2, $3, $4, $5::timestamptz)
       ON CONFLICT(kakao_user_id) DO UPDATE SET
         access_token = excluded.access_token,
-        refresh_token = excluded.refresh_token,
+        refresh_token = COALESCE(excluded.refresh_token, kakao_tokens.refresh_token),
         scope = excluded.scope,
         updated_at = excluded.updated_at
     `,
@@ -459,10 +505,10 @@ function normalizeSnapshotValue(value: SyncSnapshot | string): SyncSnapshot {
   return typeof value === "string" ? (JSON.parse(value) as SyncSnapshot) : value;
 }
 
-function requireSession(
+async function requireAuthenticatedSession(
   request: express.Request,
   response: express.Response
-): CloudSession | null {
+): Promise<AuthenticatedSession | null> {
   const authHeader = request.header("authorization");
   const token = authHeader?.startsWith("Bearer ") ? authHeader.slice("Bearer ".length) : null;
 
@@ -477,7 +523,75 @@ function requireSession(
     return null;
   }
 
-  return session;
+  try {
+    const tokenRecord = await ensureKakaoBackedSession(session);
+    return {
+      session,
+      tokenRecord
+    };
+  } catch (error) {
+    const status = error instanceof HttpStatusError ? error.status : 502;
+    const message = error instanceof Error ? error.message : "Kakao session validation failed.";
+    response.status(status).send(message);
+    return null;
+  }
+}
+
+async function ensureKakaoBackedSession(session: CloudSession): Promise<KakaoTokenRecord> {
+  const tokenRecord = await getKakaoTokenRecord(session.user.id);
+  if (!tokenRecord) {
+    throw new HttpStatusError(401, "No Kakao token record exists for this session. Sign in again.");
+  }
+
+  if (allowMockAuth && tokenRecord.accessToken === "mock-access-token") {
+    return tokenRecord;
+  }
+
+  return await validateOrRefreshKakaoTokenRecord(session, tokenRecord);
+}
+
+async function validateOrRefreshKakaoTokenRecord(
+  session: CloudSession,
+  tokenRecord: KakaoTokenRecord
+): Promise<KakaoTokenRecord> {
+  try {
+    const profile = await fetchKakaoUserProfile(tokenRecord.accessToken);
+    assertMatchingKakaoIdentity(session, profile);
+    return tokenRecord;
+  } catch (error) {
+    if (!isKakaoAuthorizationError(error)) {
+      throw error;
+    }
+
+    if (!tokenRecord.refreshToken) {
+      throw new HttpStatusError(401, "Kakao authentication expired. Sign in again.");
+    }
+
+    try {
+      const refreshedToken = await refreshKakaoAccessToken(tokenRecord.refreshToken);
+      await saveKakaoTokens(session.user.id, refreshedToken);
+      const nextTokenRecord = await getKakaoTokenRecord(session.user.id);
+      if (!nextTokenRecord) {
+        throw new HttpStatusError(401, "Kakao token refresh completed, but no token record remains.");
+      }
+
+      const profile = await fetchKakaoUserProfile(nextTokenRecord.accessToken);
+      assertMatchingKakaoIdentity(session, profile);
+      return nextTokenRecord;
+    } catch (refreshError) {
+      if (isKakaoAuthorizationError(refreshError) || isKakaoRefreshTokenError(refreshError)) {
+        throw new HttpStatusError(401, "Kakao authentication expired. Sign in again.");
+      }
+
+      throw refreshError;
+    }
+  }
+}
+
+function assertMatchingKakaoIdentity(session: CloudSession, profile: KakaoUserProfile) {
+  if (profile.id !== session.user.id) {
+    throw new HttpStatusError(401, "Kakao identity no longer matches this session. Sign in again.");
+  }
 }
 
 async function exchangeAuthorizationCode(code: string, redirectUri: string) {
@@ -511,6 +625,36 @@ async function exchangeAuthorizationCode(code: string, redirectUri: string) {
   };
 }
 
+async function refreshKakaoAccessToken(refreshToken: string) {
+  const body = new URLSearchParams({
+    grant_type: "refresh_token",
+    client_id: kakaoClientId,
+    refresh_token: refreshToken
+  });
+
+  if (kakaoClientSecret) {
+    body.set("client_secret", kakaoClientSecret);
+  }
+
+  const response = await fetch("https://kauth.kakao.com/oauth/token", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded;charset=utf-8"
+    },
+    body
+  });
+
+  if (!response.ok) {
+    throw new KakaoApiError(response.status, await response.text());
+  }
+
+  return (await response.json()) as {
+    access_token: string;
+    refresh_token?: string;
+    scope?: string;
+  };
+}
+
 async function fetchKakaoUserProfile(accessToken: string): Promise<KakaoUserProfile> {
   const response = await fetch("https://kapi.kakao.com/v2/user/me", {
     headers: {
@@ -519,7 +663,7 @@ async function fetchKakaoUserProfile(accessToken: string): Promise<KakaoUserProf
   });
 
   if (!response.ok) {
-    throw new Error(await response.text());
+    throw new KakaoApiError(response.status, await response.text());
   }
 
   const payload = (await response.json()) as {
@@ -687,4 +831,12 @@ function formatDatabaseTarget(value: string) {
   } catch {
     return "configured DATABASE_URL";
   }
+}
+
+function isKakaoAuthorizationError(error: unknown) {
+  return error instanceof KakaoApiError && (error.status === 401 || error.status === 403);
+}
+
+function isKakaoRefreshTokenError(error: unknown) {
+  return error instanceof KakaoApiError && error.status === 400;
 }

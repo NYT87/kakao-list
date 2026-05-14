@@ -6,6 +6,7 @@ import react from "@vitejs/plugin-react";
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, path.resolve(__dirname, "../.."), "");
   const extensionPublicKey = env.EXTENSION_PUBLIC_KEY?.trim();
+  const syncServerPermission = toHostPermissionPattern(env.VITE_SYNC_SERVER_URL);
 
   return {
     envDir: "../..",
@@ -17,12 +18,19 @@ export default defineConfig(({ mode }) => {
           const sourceManifestPath = path.resolve(__dirname, "public/manifest.json");
           const distManifestPath = path.resolve(__dirname, "dist/manifest.json");
           const manifest = JSON.parse(fs.readFileSync(sourceManifestPath, "utf8")) as Record<string, unknown>;
+          const hostPermissions = Array.isArray(manifest.host_permissions)
+            ? [...new Set([...manifest.host_permissions.map(String), ...(syncServerPermission ? [syncServerPermission] : [])])]
+            : syncServerPermission
+              ? [syncServerPermission]
+              : [];
 
           if (extensionPublicKey) {
             manifest.key = extensionPublicKey;
           } else {
             delete manifest.key;
           }
+
+          manifest.host_permissions = hostPermissions;
 
           fs.writeFileSync(distManifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
         }
@@ -46,3 +54,21 @@ export default defineConfig(({ mode }) => {
     }
   };
 });
+
+function toHostPermissionPattern(value?: string) {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return null;
+    }
+
+    return `${parsed.origin}/*`;
+  } catch {
+    return null;
+  }
+}
