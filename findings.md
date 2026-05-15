@@ -1,5 +1,68 @@
 # Findings & Decisions
 
+## Lint Cleanup: 2026-05-16
+
+### Key Findings
+- `pnpm lint:fix` was blocked by actual Biome diagnostics rather than auto-fixable formatting.
+- The main issues were:
+  - unused functions/imports/interfaces
+  - non-null DOM root assertions
+  - React hook dependency diagnostics
+  - `role="group"` on segmented controls instead of semantic grouping
+  - label semantics in place-note UI
+  - reduced-motion CSS using `!important`
+
+### Verification Notes
+- `pnpm lint:fix` now completes successfully.
+- `pnpm typecheck` also passes after the lint cleanup.
+
+## Package Rename + Debug Flag: 2026-05-16
+
+### Key Findings
+- The root package is currently named `kakao-lists`.
+- Visible `Debug` sections currently exist only in the extension UI:
+  - popup
+  - place-mode popup view
+  - options page
+- The current frontend code reads only `VITE_*` env vars directly. A plain `DEBUG_MODE` variable needs to be injected through Vite config to be available in browser bundles.
+
+### Technical Decisions
+| Decision | Rationale |
+|----------|-----------|
+| Rename the root package to `@nyt87/kakao-lists` | This satisfies the request without destabilizing the internal workspace package namespace |
+| Inject `DEBUG_MODE` through `define` in the PWA and extension Vite configs | This preserves the exact requested env var name while keeping runtime access simple |
+| Gate visible extension debug cards with a shared boolean constant | The debug content should fully disappear from normal builds when the flag is off |
+
+### Verification Notes
+- The root package name changed to `@nyt87/kakao-lists`.
+- Internal workspace package names such as `@kakao-lists/pwa` and `@kakao-lists/server` were left unchanged.
+- Extension and PWA builds both succeeded after the `DEBUG_MODE` injection changes.
+- Debug cards are now build-time gated by `DEBUG_MODE === "true"`.
+
+## Biome Setup: 2026-05-16
+
+### Key Findings
+- The repo currently has no Biome, ESLint, or Prettier config at the root.
+- The existing root scripts cover `build` and `typecheck`, so Biome should be added as another repo-level quality tool rather than per-app duplication.
+- The monorepo contains generated outputs and environment files that should be ignored by Biome scanning, especially `dist`, `coverage`, `node_modules`, and `*.tsbuildinfo`.
+
+### Technical Decisions
+| Decision | Rationale |
+|----------|-----------|
+| Add a root `biome.json` | This keeps formatting and linting consistent across apps and packages |
+| Add root scripts for `lint`, `lint:fix`, `format`, and `format:write` | These are the most obvious commands for daily use and CI |
+| Install Biome with pnpm instead of manually guessing a version | It keeps the dependency and lockfile aligned with the actual resolved package |
+
+### Verification Notes
+- Installed Biome version: `2.4.15`
+- A narrow config validation pass succeeded for `biome.json` and `package.json`.
+- A broader sample `biome check` run surfaced existing repo issues, primarily:
+  - formatting/import-order drift
+  - unused variables
+  - React hook dependency diagnostics
+  - a11y label/semantic-element diagnostics
+- Those existing source issues were intentionally not auto-fixed in this setup pass.
+
 ## Extension Place-Modal Detection: 2026-05-15
 
 ### Key Findings

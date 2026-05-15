@@ -248,3 +248,5 @@ DATABASE_URL=postgres://postgres:postgres@localhost:5432/kakao_lists
 - Decide whether the extension should authenticate directly or delegate sign-in to the PWA.
 - Replace whole-snapshot sync with versioned merge logic if concurrent multi-device edits become important.
 - Add refresh/renewal logic for cloud sessions instead of relying on a single short-lived signed token.
+
+Created by [nyt87](https://nyt87.github.io/).

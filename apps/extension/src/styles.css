@@ -61,7 +61,11 @@ body {
   color: var(--text);
   background:
     radial-gradient(circle at top right, var(--body-radial-1), transparent 30%),
-    radial-gradient(circle at bottom left, var(--body-radial-2), transparent 28%),
+    radial-gradient(
+      circle at bottom left,
+      var(--body-radial-2),
+      transparent 28%
+    ),
     var(--bg);
 }
 
@@ -97,6 +101,15 @@ body {
   box-shadow: var(--shadow);
 }
 
+.badge {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+  margin-bottom: 12px;
+}
+
 .popup-header .badge {
   margin-bottom: 0;
 }
@@ -123,15 +136,6 @@ body {
   background: var(--panel-soft);
   border: 1px solid var(--line);
   border-radius: 16px;
-}
-
-.badge {
-  font-family: "IBM Plex Mono", monospace;
-  font-size: 0.75rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--accent);
-  margin-bottom: 12px;
 }
 
 h1,
@@ -522,9 +526,9 @@ h1 {
   *,
   *::before,
   *::after {
-    scroll-behavior: auto !important;
-    transition-duration: 0.01ms !important;
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
+    scroll-behavior: auto;
+    transition-duration: 0.01ms;
+    animation-duration: 0.01ms;
+    animation-iteration-count: 1;
   }
 }

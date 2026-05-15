@@ -1,4 +1,8 @@
-import type { FavoriteList, FavoriteListItem, SyncSnapshot } from "@kakao-lists/domain";
+import type {
+  FavoriteList,
+  FavoriteListItem,
+  SyncSnapshot,
+} from "@kakao-lists/domain";
 
 const KAKAO_MAPS_URL_PATTERNS = ["https://map.kakao.com/*"];
 
@@ -29,10 +33,6 @@ interface KakaoMapsFavoriteRecord {
   folderid?: number;
   created_at?: string;
   item_updated_at?: string;
-}
-
-interface KakaoMapsFolderFavoritesResponse {
-  favorites?: KakaoMapsFavoriteRecord[];
 }
 
 interface TabSnapshotExtractionResult {
@@ -67,18 +67,24 @@ export async function extractSnapshotFromKakaoMapsTab(): Promise<ExtractedKakaoM
     return null;
   }
 
-  const debug = [`found-tab:${tab.id}`, `title:${tab.title ?? "unknown"}`, `url:${tab.url ?? "unknown"}`];
+  const debug = [
+    `found-tab:${tab.id}`,
+    `title:${tab.title ?? "unknown"}`,
+    `url:${tab.url ?? "unknown"}`,
+  ];
 
   const [{ result }] = await chrome.scripting.executeScript({
     target: {
-      tabId: tab.id
+      tabId: tab.id,
     },
     world: "MAIN",
-    func: extractSnapshotInPageEnvelope
+    func: extractSnapshotInPageEnvelope,
   });
 
   if (!result) {
-    throw new Error("Kakao Maps extraction returned no data. Reload the Kakao Maps tab and try again.");
+    throw new Error(
+      "Kakao Maps extraction returned no data. Reload the Kakao Maps tab and try again.",
+    );
   }
 
   const envelope = result as PageExtractionEnvelope;
@@ -86,9 +92,11 @@ export async function extractSnapshotFromKakaoMapsTab(): Promise<ExtractedKakaoM
     throw new Error(
       envelope.error
         ? `Kakao Maps page error: ${envelope.error}${envelope.pageHref ? ` @ ${envelope.pageHref}` : ""}${
-            envelope.responsePreview ? ` | preview: ${envelope.responsePreview}` : ""
+            envelope.responsePreview
+              ? ` | preview: ${envelope.responsePreview}`
+              : ""
           }`
-        : "Kakao Maps extraction returned no structured result."
+        : "Kakao Maps extraction returned no structured result.",
     );
   }
 
@@ -102,21 +110,23 @@ export async function extractSnapshotFromKakaoMapsTab(): Promise<ExtractedKakaoM
       `page-href:${envelope.pageHref ?? tab.url ?? "unknown"}`,
       `folder-count:${envelope.result.folderCount}`,
       `place-count:${envelope.result.placeCount}`,
-      `folder-ids:${envelope.result.folderIds.slice(0, 12).join(",") || "none"}`
-    ]
+      `folder-ids:${envelope.result.folderIds.slice(0, 12).join(",") || "none"}`,
+    ],
   };
 }
 
 async function findKakaoMapsTab(): Promise<chrome.tabs.Tab | null> {
   const tabs = await chrome.tabs.query({
-    url: KAKAO_MAPS_URL_PATTERNS
+    url: KAKAO_MAPS_URL_PATTERNS,
   });
 
   if (tabs.length === 0) {
     return null;
   }
 
-  const activeInCurrentWindow = tabs.find((tab) => tab.active && tab.lastAccessed !== undefined);
+  const activeInCurrentWindow = tabs.find(
+    (tab) => tab.active && tab.lastAccessed !== undefined,
+  );
   if (activeInCurrentWindow) {
     return activeInCurrentWindow;
   }
@@ -124,31 +134,38 @@ async function findKakaoMapsTab(): Promise<chrome.tabs.Tab | null> {
   return (
     tabs
       .slice()
-      .sort((left, right) => (right.lastAccessed ?? 0) - (left.lastAccessed ?? 0))[0] ?? null
+      .sort(
+        (left, right) => (right.lastAccessed ?? 0) - (left.lastAccessed ?? 0),
+      )[0] ?? null
   );
 }
 
 async function extractSnapshotInPageEnvelope(): Promise<PageExtractionEnvelope> {
   try {
     const fetchJson = async <T>(path: string): Promise<T> => {
-      const response = await fetch(new URL(path, window.location.origin).toString(), {
-        credentials: "include",
-        headers: {
-          Accept: "application/json"
-        }
-      });
+      const response = await fetch(
+        new URL(path, window.location.origin).toString(),
+        {
+          credentials: "include",
+          headers: {
+            Accept: "application/json",
+          },
+        },
+      );
 
       const raw = await response.text();
       if (!response.ok) {
         throw new Error(
-          `Kakao Maps request failed for ${path} with status ${response.status}. Response preview: ${raw.slice(0, 180)}`
+          `Kakao Maps request failed for ${path} with status ${response.status}. Response preview: ${raw.slice(0, 180)}`,
         );
       }
 
       try {
         return JSON.parse(raw) as T;
       } catch {
-        throw new Error(`Kakao Maps returned non-JSON for ${path}. Response preview: ${raw.slice(0, 180)}`);
+        throw new Error(
+          `Kakao Maps returned non-JSON for ${path}. Response preview: ${raw.slice(0, 180)}`,
+        );
       }
     };
 
@@ -161,8 +178,10 @@ async function extractSnapshotInPageEnvelope(): Promise<PageExtractionEnvelope> 
     };
 
     const dedupeFolders = (
-      records: KakaoMapsFolderRecord[]
-    ): Array<Required<Pick<KakaoMapsFolderRecord, "folderid">> & KakaoMapsFolderRecord> => {
+      records: KakaoMapsFolderRecord[],
+    ): Array<
+      Required<Pick<KakaoMapsFolderRecord, "folderid">> & KakaoMapsFolderRecord
+    > => {
       const byId = new Map<number, KakaoMapsFolderRecord>();
 
       for (const record of records) {
@@ -179,42 +198,47 @@ async function extractSnapshotInPageEnvelope(): Promise<PageExtractionEnvelope> 
           continue;
         }
 
-        byId.set(record.folderid, metadataScore(record) >= metadataScore(current) ? record : current);
+        byId.set(
+          record.folderid,
+          metadataScore(record) >= metadataScore(current) ? record : current,
+        );
       }
 
       return Array.from(byId.entries()).map(([folderid, record]) => ({
         folderid,
-        ...record
+        ...record,
       }));
     };
 
     const normalizeFavoriteItem = (
       folderId: number,
       favorite: KakaoMapsFavoriteRecord,
-      index: number
+      index: number,
     ): FavoriteListItem => {
       return {
         id: String(favorite.seq ?? favorite.key ?? `${folderId}-${index}`),
         title: favorite.display1?.trim() || `Saved place ${index + 1}`,
         placeKey: favorite.key?.trim() || undefined,
-        href: favorite.key ? `https://place.map.kakao.com/${favorite.key}` : undefined,
+        href: favorite.key
+          ? `https://place.map.kakao.com/${favorite.key}`
+          : undefined,
         color: favorite.color?.trim() || undefined,
         subtitle: favorite.display2?.trim() || undefined,
         kakaoNote: favorite.memo?.trim() || undefined,
-        localNote: undefined
+        localNote: undefined,
       };
     };
 
     const resolveListUpdatedAt = (
       folder: KakaoMapsFolderRecord,
       favorites: KakaoMapsFavoriteRecord[],
-      fallback: string
+      fallback: string,
     ): string => {
       const timestamps = [
         folder.folder_updated_at,
         ...favorites.map((favorite) => favorite.item_updated_at),
         folder.created_at,
-        ...favorites.map((favorite) => favorite.created_at)
+        ...favorites.map((favorite) => favorite.created_at),
       ].filter((value): value is string => Boolean(value));
 
       const latest = timestamps
@@ -230,12 +254,12 @@ async function extractSnapshotInPageEnvelope(): Promise<PageExtractionEnvelope> 
     const folderRecords = Array.isArray(folderPayload)
       ? (folderPayload as KakaoMapsFolderRecord[])
       : Array.isArray((folderPayload as { folders?: unknown }).folders)
-        ? ((folderPayload as { folders: KakaoMapsFolderRecord[] }).folders)
+        ? (folderPayload as { folders: KakaoMapsFolderRecord[] }).folders
         : null;
 
     if (!folderRecords) {
       throw new Error(
-        `Unexpected /folder/list payload shape: ${JSON.stringify(folderPayload).slice(0, 180)}`
+        `Unexpected /folder/list payload shape: ${JSON.stringify(folderPayload).slice(0, 180)}`,
       );
     }
 
@@ -244,46 +268,51 @@ async function extractSnapshotInPageEnvelope(): Promise<PageExtractionEnvelope> 
     const folderFavorites = await Promise.all(
       folders.map(async (folder) => {
         const payload = await fetchJson<unknown>(
-          `/favorite/mine/list?folderid=${folder.folderid}`
+          `/favorite/mine/list?folderid=${folder.folderid}`,
         );
 
-        const favorites = Array.isArray((payload as { favorites?: unknown }).favorites)
-          ? ((payload as { favorites: KakaoMapsFavoriteRecord[] }).favorites)
+        const favorites = Array.isArray(
+          (payload as { favorites?: unknown }).favorites,
+        )
+          ? (payload as { favorites: KakaoMapsFavoriteRecord[] }).favorites
           : Array.isArray(payload)
             ? (payload as KakaoMapsFavoriteRecord[])
             : null;
 
         if (!favorites) {
           throw new Error(
-            `Unexpected /favorite/mine/list payload for folder ${folder.folderid}: ${JSON.stringify(payload).slice(0, 180)}`
+            `Unexpected /favorite/mine/list payload for folder ${folder.folderid}: ${JSON.stringify(payload).slice(0, 180)}`,
           );
         }
 
         return {
           folder,
-          favorites
+          favorites,
         };
-      })
+      }),
     );
 
-    const lists: FavoriteList[] = folderFavorites.map(({ folder, favorites }) => {
-      const items = favorites.map((favorite, index) =>
-        normalizeFavoriteItem(folder.folderid, favorite, index)
-      );
+    const lists: FavoriteList[] = folderFavorites.map(
+      ({ folder, favorites }) => {
+        const items = favorites.map((favorite, index) =>
+          normalizeFavoriteItem(folder.folderid, favorite, index),
+        );
 
-      return {
-        id: `kakao-folder-${folder.folderid}`,
-        name: folder.title?.trim() || `Folder ${folder.folderid}`,
-        description: folder.memo?.trim() || favorites[0]?.display2?.trim() || undefined,
-        creatorName:
-          folder.nickname?.trim() ||
-          folder.kakao_map_user_id?.trim() ||
-          (folder.map_user_id ? `map:${folder.map_user_id}` : undefined),
-        updatedAt: resolveListUpdatedAt(folder, favorites, now),
-        itemCount: items.length,
-        items
-      };
-    });
+        return {
+          id: `kakao-folder-${folder.folderid}`,
+          name: folder.title?.trim() || `Folder ${folder.folderid}`,
+          description:
+            folder.memo?.trim() || favorites[0]?.display2?.trim() || undefined,
+          creatorName:
+            folder.nickname?.trim() ||
+            folder.kakao_map_user_id?.trim() ||
+            (folder.map_user_id ? `map:${folder.map_user_id}` : undefined),
+          updatedAt: resolveListUpdatedAt(folder, favorites, now),
+          itemCount: items.length,
+          items,
+        };
+      },
+    );
 
     return {
       ok: true,
@@ -291,22 +320,22 @@ async function extractSnapshotInPageEnvelope(): Promise<PageExtractionEnvelope> 
         snapshot: {
           syncedAt: now,
           source: "kakao-maps-private-web",
-          lists
+          lists,
         },
         folderCount: lists.length,
         placeCount: lists.reduce((total, list) => total + list.itemCount, 0),
         folderIds: lists
           .map((list) => Number(list.id.replace("kakao-folder-", "")))
-          .filter(Number.isFinite)
+          .filter(Number.isFinite),
       },
-      pageHref: window.location.href
+      pageHref: window.location.href,
     };
   } catch (error) {
     return {
       ok: false,
       error: error instanceof Error ? error.message : String(error),
       pageHref: window.location.href,
-      responsePreview: error instanceof Error ? undefined : String(error)
+      responsePreview: error instanceof Error ? undefined : String(error),
     };
   }
 }

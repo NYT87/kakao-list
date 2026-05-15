@@ -15,21 +15,24 @@ import type {
   PushSnapshotInput,
   PushSnapshotResult,
   SyncSnapshot,
-  UpdateLocalNoteInput
+  UpdateLocalNoteInput,
 } from "@kakao-lists/domain";
 
 loadRootEnvFiles();
 
 const port = Number(process.env.SYNC_SERVER_PORT ?? 8787);
-const databaseUrl = process.env.DATABASE_URL ?? "postgres://postgres:postgres@localhost:5432/kakao_lists";
+const databaseUrl =
+  process.env.DATABASE_URL ??
+  "postgres://postgres:postgres@localhost:5432/kakao_lists";
 const kakaoClientId = process.env.KAKAO_REST_API_KEY ?? "";
 const kakaoClientSecret = process.env.KAKAO_CLIENT_SECRET ?? "";
-const sessionSigningSecret = process.env.SYNC_SERVER_SIGNING_SECRET ?? "change-me-in-production";
+const sessionSigningSecret =
+  process.env.SYNC_SERVER_SIGNING_SECRET ?? "change-me-in-production";
 const allowMockAuth = process.env.ALLOW_MOCK_AUTH === "true";
 const sessionTtlMs = 1000 * 60 * 60 * 24 * 7;
 
 const pool = new Pool({
-  connectionString: databaseUrl
+  connectionString: databaseUrl,
 });
 
 const app = express();
@@ -41,7 +44,7 @@ app.use((request, response, next) => {
   response.on("finish", () => {
     const durationMs = Math.round((performance.now() - startedAt) * 10) / 10;
     console.info(
-      `[api] ${request.method} ${request.originalUrl} -> ${response.statusCode} (${durationMs}ms)`
+      `[api] ${request.method} ${request.originalUrl} -> ${response.statusCode} (${durationMs}ms)`,
     );
   });
 
@@ -52,9 +55,13 @@ app.use("/api", async (_request, response, next) => {
     await ensureServerReady();
     next();
   } catch (error) {
-    response.status(503).send(
-      error instanceof Error ? `Database is unavailable: ${error.message}` : "Database is unavailable."
-    );
+    response
+      .status(503)
+      .send(
+        error instanceof Error
+          ? `Database is unavailable: ${error.message}`
+          : "Database is unavailable.",
+      );
   }
 });
 
@@ -75,7 +82,7 @@ interface AuthenticatedSession {
 class HttpStatusError extends Error {
   constructor(
     readonly status: number,
-    message: string
+    message: string,
   ) {
     super(message);
   }
@@ -84,7 +91,7 @@ class HttpStatusError extends Error {
 class KakaoApiError extends Error {
   constructor(
     readonly status: number,
-    message: string
+    message: string,
   ) {
     super(message);
   }
@@ -96,14 +103,17 @@ app.get("/health", async (_request, response) => {
     response.json({
       ok: true,
       service: "kakao-lists-sync-server",
-      database: "postgres"
+      database: "postgres",
     });
   } catch (error) {
     response.status(500).json({
       ok: false,
       service: "kakao-lists-sync-server",
       database: "postgres",
-      error: error instanceof Error ? error.message : "Database health check failed."
+      error:
+        error instanceof Error
+          ? error.message
+          : "Database health check failed.",
     });
   }
 });
@@ -116,37 +126,48 @@ app.post("/api/auth/kakao/exchange", async (request, response) => {
   }
 
   if (!kakaoClientId) {
-    response.status(500).send("KAKAO_REST_API_KEY is not configured on the server.");
+    response
+      .status(500)
+      .send("KAKAO_REST_API_KEY is not configured on the server.");
     return;
   }
 
   try {
-    const kakaoToken = await exchangeAuthorizationCode(body.code, body.redirectUri);
+    const kakaoToken = await exchangeAuthorizationCode(
+      body.code,
+      body.redirectUri,
+    );
     const kakaoUser = await fetchKakaoUserProfile(kakaoToken.access_token);
     await saveKakaoTokens(kakaoUser.id, kakaoToken);
     const session = createCloudSession(kakaoUser);
     response.json(session);
   } catch (error) {
-    response.status(502).send(error instanceof Error ? error.message : "Kakao auth exchange failed.");
+    response
+      .status(502)
+      .send(
+        error instanceof Error ? error.message : "Kakao auth exchange failed.",
+      );
   }
 });
 
 app.post("/api/auth/mock", async (request, response) => {
   if (!allowMockAuth) {
-    response.status(403).send("Mock auth is disabled. Set ALLOW_MOCK_AUTH=true to enable it.");
+    response
+      .status(403)
+      .send("Mock auth is disabled. Set ALLOW_MOCK_AUTH=true to enable it.");
     return;
   }
 
   const body = (request.body ?? {}) as MockAuthInput;
   const user = {
     id: body.userId?.trim() || "mock-user-1",
-    nickname: body.nickname?.trim() || "Mock User"
+    nickname: body.nickname?.trim() || "Mock User",
   };
 
   await saveKakaoTokens(user.id, {
     access_token: "mock-access-token",
     refresh_token: "mock-refresh-token",
-    scope: "profile_nickname"
+    scope: "profile_nickname",
   });
 
   response.json(createCloudSession(user));
@@ -166,13 +187,15 @@ app.post("/api/sync/kakao", async (request, response) => {
       deviceId: "server-kakao-sync",
       snapshot: {
         ...snapshot,
-        source: `kakao-server-sync:${tokenRecord.updatedAt}`
-      }
+        source: `kakao-server-sync:${tokenRecord.updatedAt}`,
+      },
     });
 
     response.json(result);
   } catch (error) {
-    response.status(500).send(error instanceof Error ? error.message : "Kakao sync failed.");
+    response
+      .status(500)
+      .send(error instanceof Error ? error.message : "Kakao sync failed.");
   }
 });
 
@@ -191,19 +214,21 @@ app.get("/api/snapshot", async (request, response) => {
           deviceId: row.deviceId,
           serverVersion: row.serverVersion,
           receivedAt: row.receivedAt,
-          snapshot: row.snapshot
+          snapshot: row.snapshot,
         }
       : {
           userId: session.user.id,
           deviceId: null,
           serverVersion: null,
           receivedAt: null,
-          snapshot: null
+          snapshot: null,
         };
 
     response.json(result);
   } catch (error) {
-    response.status(500).send(error instanceof Error ? error.message : "Snapshot read failed.");
+    response
+      .status(500)
+      .send(error instanceof Error ? error.message : "Snapshot read failed.");
   }
 });
 
@@ -225,12 +250,14 @@ app.put("/api/snapshot", async (request, response) => {
     const result = await saveLatestSnapshot({
       userId: session.user.id,
       deviceId: body.deviceId,
-      snapshot: validatedSnapshot
+      snapshot: validatedSnapshot,
     });
 
     response.json(result);
   } catch (error) {
-    response.status(400).send(error instanceof Error ? error.message : "Snapshot write failed.");
+    response
+      .status(400)
+      .send(error instanceof Error ? error.message : "Snapshot write failed.");
   }
 });
 
@@ -242,7 +269,9 @@ app.patch("/api/snapshot/item-note", async (request, response) => {
 
   const body = request.body as Partial<UpdateLocalNoteInput>;
   if (!body.listId || !body.itemId || typeof body.localNote !== "string") {
-    response.status(400).send("Body must include listId, itemId, and localNote.");
+    response
+      .status(400)
+      .send("Body must include listId, itemId, and localNote.");
     return;
   }
 
@@ -271,9 +300,9 @@ app.patch("/api/snapshot/item-note", async (request, response) => {
           found = true;
           return {
             ...item,
-            localNote: localNote.trim() || undefined
+            localNote: localNote.trim() || undefined,
           };
-        })
+        }),
       };
     });
 
@@ -289,13 +318,17 @@ app.patch("/api/snapshot/item-note", async (request, response) => {
         ...current.snapshot,
         syncedAt: new Date().toISOString(),
         source: `${current.snapshot.source}:local-note`,
-        lists: nextLists
-      }
+        lists: nextLists,
+      },
     });
 
     response.json(result);
   } catch (error) {
-    response.status(500).send(error instanceof Error ? error.message : "Local note update failed.");
+    response
+      .status(500)
+      .send(
+        error instanceof Error ? error.message : "Local note update failed.",
+      );
   }
 });
 
@@ -303,7 +336,8 @@ export default app;
 export { ensureServerReady };
 
 const isDirectRun =
-  Boolean(process.argv[1]) && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+  Boolean(process.argv[1]) &&
+  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 
 if (isDirectRun) {
   void startServer();
@@ -316,12 +350,14 @@ async function startServer() {
     console.error(
       error instanceof Error
         ? `Postgres initialization failed at startup: ${error.message}`
-        : "Postgres initialization failed at startup."
+        : "Postgres initialization failed at startup.",
     );
   }
 
   app.listen(port, () => {
-    console.info(`Kakao Lists sync server listening on http://localhost:${port}`);
+    console.info(
+      `Kakao Lists sync server listening on http://localhost:${port}`,
+    );
   });
 }
 
@@ -329,7 +365,9 @@ function ensureServerReady() {
   if (!initializationPromise) {
     initializationPromise = initializeDatabase()
       .then(() => {
-        console.info(`Connected to Postgres at ${formatDatabaseTarget(databaseUrl)}`);
+        console.info(
+          `Connected to Postgres at ${formatDatabaseTarget(databaseUrl)}`,
+        );
       })
       .catch((error) => {
         initializationPromise = null;
@@ -372,7 +410,9 @@ async function initializeDatabase() {
   `);
 }
 
-async function getKakaoTokenRecord(userId: string): Promise<KakaoTokenRecord | null> {
+async function getKakaoTokenRecord(
+  userId: string,
+): Promise<KakaoTokenRecord | null> {
   const result = await pool.query<{
     access_token: string;
     refresh_token: string | null;
@@ -384,7 +424,7 @@ async function getKakaoTokenRecord(userId: string): Promise<KakaoTokenRecord | n
       FROM kakao_tokens
       WHERE kakao_user_id = $1
     `,
-    [userId]
+    [userId],
   );
 
   const row = result.rows[0];
@@ -396,7 +436,7 @@ async function getKakaoTokenRecord(userId: string): Promise<KakaoTokenRecord | n
     accessToken: row.access_token,
     refreshToken: row.refresh_token,
     scope: row.scope,
-    updatedAt: new Date(row.updated_at).toISOString()
+    updatedAt: new Date(row.updated_at).toISOString(),
   };
 }
 
@@ -413,7 +453,7 @@ async function getLatestSnapshotRow(userId: string) {
       FROM latest_snapshots
       WHERE kakao_user_id = $1
     `,
-    [userId]
+    [userId],
   );
 
   const row = result.rows[0];
@@ -426,7 +466,7 @@ async function getLatestSnapshotRow(userId: string) {
     deviceId: row.device_id,
     serverVersion: row.server_version,
     receivedAt: new Date(row.received_at).toISOString(),
-    snapshot: normalizeSnapshotValue(row.snapshot_json)
+    snapshot: normalizeSnapshotValue(row.snapshot_json),
   };
 }
 
@@ -436,7 +476,7 @@ async function saveKakaoTokens(
     access_token: string;
     refresh_token?: string;
     scope?: string;
-  }
+  },
 ) {
   const updatedAt = new Date().toISOString();
   await pool.query(
@@ -449,24 +489,34 @@ async function saveKakaoTokens(
         scope = excluded.scope,
         updated_at = excluded.updated_at
     `,
-    [userId, token.access_token, token.refresh_token ?? null, token.scope ?? null, updatedAt]
+    [
+      userId,
+      token.access_token,
+      token.refresh_token ?? null,
+      token.scope ?? null,
+      updatedAt,
+    ],
   );
 }
 
 function validateSnapshot(snapshot: Partial<SyncSnapshot>): SyncSnapshot {
-  if (!snapshot.syncedAt || !snapshot.source || !Array.isArray(snapshot.lists)) {
+  if (
+    !snapshot.syncedAt ||
+    !snapshot.source ||
+    !Array.isArray(snapshot.lists)
+  ) {
     throw new Error("Snapshot must include syncedAt, source, and lists.");
   }
 
   return {
     syncedAt: snapshot.syncedAt,
     source: snapshot.source,
-    lists: snapshot.lists
+    lists: snapshot.lists,
   };
 }
 
 async function saveLatestSnapshot(
-  input: PushSnapshotInput & { userId: string }
+  input: PushSnapshotInput & { userId: string },
 ): Promise<PushSnapshotResult> {
   const client = await pool.connect();
 
@@ -479,7 +529,7 @@ async function saveLatestSnapshot(
         WHERE kakao_user_id = $1
         FOR UPDATE
       `,
-      [input.userId]
+      [input.userId],
     );
 
     const nextVersion = (current.rows[0]?.server_version ?? 0) + 1;
@@ -491,7 +541,7 @@ async function saveLatestSnapshot(
         INSERT INTO snapshot_history (kakao_user_id, device_id, server_version, received_at, snapshot_json)
         VALUES ($1, $2, $3, $4::timestamptz, $5::jsonb)
       `,
-      [input.userId, input.deviceId, nextVersion, receivedAt, serialized]
+      [input.userId, input.deviceId, nextVersion, receivedAt, serialized],
     );
 
     await client.query(
@@ -504,7 +554,7 @@ async function saveLatestSnapshot(
           received_at = excluded.received_at,
           snapshot_json = excluded.snapshot_json
       `,
-      [input.userId, input.deviceId, nextVersion, receivedAt, serialized]
+      [input.userId, input.deviceId, nextVersion, receivedAt, serialized],
     );
 
     await client.query("COMMIT");
@@ -514,7 +564,7 @@ async function saveLatestSnapshot(
       deviceId: input.deviceId,
       serverVersion: nextVersion,
       receivedAt,
-      snapshot: input.snapshot
+      snapshot: input.snapshot,
     };
   } catch (error) {
     await rollbackQuietly(client);
@@ -533,15 +583,19 @@ async function rollbackQuietly(client: PoolClient) {
 }
 
 function normalizeSnapshotValue(value: SyncSnapshot | string): SyncSnapshot {
-  return typeof value === "string" ? (JSON.parse(value) as SyncSnapshot) : value;
+  return typeof value === "string"
+    ? (JSON.parse(value) as SyncSnapshot)
+    : value;
 }
 
 async function requireAuthenticatedSession(
   request: express.Request,
-  response: express.Response
+  response: express.Response,
 ): Promise<AuthenticatedSession | null> {
   const authHeader = request.header("authorization");
-  const token = authHeader?.startsWith("Bearer ") ? authHeader.slice("Bearer ".length) : null;
+  const token = authHeader?.startsWith("Bearer ")
+    ? authHeader.slice("Bearer ".length)
+    : null;
 
   if (!token) {
     response.status(401).send("Missing bearer token.");
@@ -558,20 +612,28 @@ async function requireAuthenticatedSession(
     const tokenRecord = await ensureKakaoBackedSession(session);
     return {
       session,
-      tokenRecord
+      tokenRecord,
     };
   } catch (error) {
     const status = error instanceof HttpStatusError ? error.status : 502;
-    const message = error instanceof Error ? error.message : "Kakao session validation failed.";
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Kakao session validation failed.";
     response.status(status).send(message);
     return null;
   }
 }
 
-async function ensureKakaoBackedSession(session: CloudSession): Promise<KakaoTokenRecord> {
+async function ensureKakaoBackedSession(
+  session: CloudSession,
+): Promise<KakaoTokenRecord> {
   const tokenRecord = await getKakaoTokenRecord(session.user.id);
   if (!tokenRecord) {
-    throw new HttpStatusError(401, "No Kakao token record exists for this session. Sign in again.");
+    throw new HttpStatusError(
+      401,
+      "No Kakao token record exists for this session. Sign in again.",
+    );
   }
 
   if (allowMockAuth && tokenRecord.accessToken === "mock-access-token") {
@@ -583,7 +645,7 @@ async function ensureKakaoBackedSession(session: CloudSession): Promise<KakaoTok
 
 async function validateOrRefreshKakaoTokenRecord(
   session: CloudSession,
-  tokenRecord: KakaoTokenRecord
+  tokenRecord: KakaoTokenRecord,
 ): Promise<KakaoTokenRecord> {
   try {
     const profile = await fetchKakaoUserProfile(tokenRecord.accessToken);
@@ -595,23 +657,37 @@ async function validateOrRefreshKakaoTokenRecord(
     }
 
     if (!tokenRecord.refreshToken) {
-      throw new HttpStatusError(401, "Kakao authentication expired. Sign in again.");
+      throw new HttpStatusError(
+        401,
+        "Kakao authentication expired. Sign in again.",
+      );
     }
 
     try {
-      const refreshedToken = await refreshKakaoAccessToken(tokenRecord.refreshToken);
+      const refreshedToken = await refreshKakaoAccessToken(
+        tokenRecord.refreshToken,
+      );
       await saveKakaoTokens(session.user.id, refreshedToken);
       const nextTokenRecord = await getKakaoTokenRecord(session.user.id);
       if (!nextTokenRecord) {
-        throw new HttpStatusError(401, "Kakao token refresh completed, but no token record remains.");
+        throw new HttpStatusError(
+          401,
+          "Kakao token refresh completed, but no token record remains.",
+        );
       }
 
       const profile = await fetchKakaoUserProfile(nextTokenRecord.accessToken);
       assertMatchingKakaoIdentity(session, profile);
       return nextTokenRecord;
     } catch (refreshError) {
-      if (isKakaoAuthorizationError(refreshError) || isKakaoRefreshTokenError(refreshError)) {
-        throw new HttpStatusError(401, "Kakao authentication expired. Sign in again.");
+      if (
+        isKakaoAuthorizationError(refreshError) ||
+        isKakaoRefreshTokenError(refreshError)
+      ) {
+        throw new HttpStatusError(
+          401,
+          "Kakao authentication expired. Sign in again.",
+        );
       }
 
       throw refreshError;
@@ -619,9 +695,15 @@ async function validateOrRefreshKakaoTokenRecord(
   }
 }
 
-function assertMatchingKakaoIdentity(session: CloudSession, profile: KakaoUserProfile) {
+function assertMatchingKakaoIdentity(
+  session: CloudSession,
+  profile: KakaoUserProfile,
+) {
   if (profile.id !== session.user.id) {
-    throw new HttpStatusError(401, "Kakao identity no longer matches this session. Sign in again.");
+    throw new HttpStatusError(
+      401,
+      "Kakao identity no longer matches this session. Sign in again.",
+    );
   }
 }
 
@@ -630,7 +712,7 @@ async function exchangeAuthorizationCode(code: string, redirectUri: string) {
     grant_type: "authorization_code",
     client_id: kakaoClientId,
     redirect_uri: redirectUri,
-    code
+    code,
   });
 
   if (kakaoClientSecret) {
@@ -640,9 +722,9 @@ async function exchangeAuthorizationCode(code: string, redirectUri: string) {
   const response = await fetch("https://kauth.kakao.com/oauth/token", {
     method: "POST",
     headers: {
-      "Content-Type": "application/x-www-form-urlencoded;charset=utf-8"
+      "Content-Type": "application/x-www-form-urlencoded;charset=utf-8",
     },
-    body
+    body,
   });
 
   if (!response.ok) {
@@ -660,7 +742,7 @@ async function refreshKakaoAccessToken(refreshToken: string) {
   const body = new URLSearchParams({
     grant_type: "refresh_token",
     client_id: kakaoClientId,
-    refresh_token: refreshToken
+    refresh_token: refreshToken,
   });
 
   if (kakaoClientSecret) {
@@ -670,9 +752,9 @@ async function refreshKakaoAccessToken(refreshToken: string) {
   const response = await fetch("https://kauth.kakao.com/oauth/token", {
     method: "POST",
     headers: {
-      "Content-Type": "application/x-www-form-urlencoded;charset=utf-8"
+      "Content-Type": "application/x-www-form-urlencoded;charset=utf-8",
     },
-    body
+    body,
   });
 
   if (!response.ok) {
@@ -686,11 +768,13 @@ async function refreshKakaoAccessToken(refreshToken: string) {
   };
 }
 
-async function fetchKakaoUserProfile(accessToken: string): Promise<KakaoUserProfile> {
+async function fetchKakaoUserProfile(
+  accessToken: string,
+): Promise<KakaoUserProfile> {
   const response = await fetch("https://kapi.kakao.com/v2/user/me", {
     headers: {
-      Authorization: `Bearer ${accessToken}`
-    }
+      Authorization: `Bearer ${accessToken}`,
+    },
   });
 
   if (!response.ok) {
@@ -713,9 +797,11 @@ async function fetchKakaoUserProfile(accessToken: string): Promise<KakaoUserProf
 
   return {
     id: String(payload.id),
-    nickname: payload.kakao_account?.profile?.nickname ?? payload.properties?.nickname,
+    nickname:
+      payload.kakao_account?.profile?.nickname ?? payload.properties?.nickname,
     profileImageUrl:
-      payload.kakao_account?.profile?.profile_image_url ?? payload.properties?.profile_image
+      payload.kakao_account?.profile?.profile_image_url ??
+      payload.properties?.profile_image,
   };
 }
 
@@ -723,7 +809,7 @@ function createCloudSession(user: KakaoUserProfile): CloudSession {
   const expiresAt = new Date(Date.now() + sessionTtlMs).toISOString();
   const payload = {
     user,
-    expiresAt
+    expiresAt,
   };
   const encodedPayload = base64UrlEncode(JSON.stringify(payload));
   const signature = signPayload(encodedPayload);
@@ -731,7 +817,7 @@ function createCloudSession(user: KakaoUserProfile): CloudSession {
   return {
     token: `${encodedPayload}.${signature}`,
     expiresAt,
-    user
+    user,
   };
 }
 
@@ -756,7 +842,11 @@ function verifySessionToken(token: string): CloudSession | null {
     expiresAt: string;
   };
 
-  if (!parsed.user?.id || !parsed.expiresAt || Number.isNaN(Date.parse(parsed.expiresAt))) {
+  if (
+    !parsed.user?.id ||
+    !parsed.expiresAt ||
+    Number.isNaN(Date.parse(parsed.expiresAt))
+  ) {
     return null;
   }
 
@@ -767,12 +857,15 @@ function verifySessionToken(token: string): CloudSession | null {
   return {
     token,
     expiresAt: parsed.expiresAt,
-    user: parsed.user
+    user: parsed.user,
   };
 }
 
 function signPayload(encodedPayload: string) {
-  return crypto.createHmac("sha256", sessionSigningSecret).update(encodedPayload).digest("base64url");
+  return crypto
+    .createHmac("sha256", sessionSigningSecret)
+    .update(encodedPayload)
+    .digest("base64url");
 }
 
 function base64UrlEncode(value: string) {
@@ -797,10 +890,27 @@ function buildMockKakaoSnapshot(userId: string): SyncSnapshot {
         updatedAt: now,
         itemCount: 3,
         items: [
-          { id: "item-1", title: "Kakao onboarding notes", placeKey: "mock-1", color: "01", subtitle: "Imported by server sync", kakaoNote: "Imported by server sync" },
-          { id: "item-2", title: "Shared grocery ideas", placeKey: "mock-2", color: "02", subtitle: "Imported by server sync" },
-          { id: "item-3", title: "Weekend plans", href: "https://example.com/weekend" }
-        ]
+          {
+            id: "item-1",
+            title: "Kakao onboarding notes",
+            placeKey: "mock-1",
+            color: "01",
+            subtitle: "Imported by server sync",
+            kakaoNote: "Imported by server sync",
+          },
+          {
+            id: "item-2",
+            title: "Shared grocery ideas",
+            placeKey: "mock-2",
+            color: "02",
+            subtitle: "Imported by server sync",
+          },
+          {
+            id: "item-3",
+            title: "Weekend plans",
+            href: "https://example.com/weekend",
+          },
+        ],
       },
       {
         id: `fav-${suffix}-02`,
@@ -808,11 +918,23 @@ function buildMockKakaoSnapshot(userId: string): SyncSnapshot {
         updatedAt: now,
         itemCount: 2,
         items: [
-          { id: "item-4", title: "Busan cafe shortlist", placeKey: "mock-4", color: "03", subtitle: "Imported by server sync" },
-          { id: "item-5", title: "Jeju trip draft", placeKey: "mock-5", color: "04", subtitle: "Imported by server sync" }
-        ]
-      }
-    ]
+          {
+            id: "item-4",
+            title: "Busan cafe shortlist",
+            placeKey: "mock-4",
+            color: "03",
+            subtitle: "Imported by server sync",
+          },
+          {
+            id: "item-5",
+            title: "Jeju trip draft",
+            placeKey: "mock-5",
+            color: "04",
+            subtitle: "Imported by server sync",
+          },
+        ],
+      },
+    ],
   };
 }
 
@@ -847,7 +969,10 @@ function loadEnvFile(filePath: string) {
       continue;
     }
 
-    const value = line.slice(separatorIndex + 1).trim().replace(/^['"]|['"]$/g, "");
+    const value = line
+      .slice(separatorIndex + 1)
+      .trim()
+      .replace(/^['"]|['"]$/g, "");
     process.env[key] = value;
   }
 }
@@ -865,7 +990,10 @@ function formatDatabaseTarget(value: string) {
 }
 
 function isKakaoAuthorizationError(error: unknown) {
-  return error instanceof KakaoApiError && (error.status === 401 || error.status === 403);
+  return (
+    error instanceof KakaoApiError &&
+    (error.status === 401 || error.status === 403)
+  );
 }
 
 function isKakaoRefreshTokenError(error: unknown) {

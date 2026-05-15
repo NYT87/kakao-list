@@ -7,4 +7,3 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     console.info("Scheduled sync placeholder fired.");
   }
 });
-

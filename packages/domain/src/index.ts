@@ -101,15 +101,33 @@ export function createMockSyncAdapter(): SyncAdapter {
         {
           id: `fav-${suffix}-01`,
           name: "Pinned Reads",
-          description: "Imported from the mock adapter as a sample overview list.",
+          description:
+            "Imported from the mock adapter as a sample overview list.",
           creatorName: "Mock User",
           updatedAt: now,
           itemCount: 3,
           items: [
-            { id: "item-1", title: "Kakao onboarding notes", placeKey: "mock-1", color: "01", subtitle: "Mock detail line", kakaoNote: "Imported from mock adapter" },
-            { id: "item-2", title: "Shared grocery ideas", placeKey: "mock-2", color: "02", subtitle: "Mock detail line" },
-            { id: "item-3", title: "Weekend plans", href: "https://example.com/weekend" }
-          ]
+            {
+              id: "item-1",
+              title: "Kakao onboarding notes",
+              placeKey: "mock-1",
+              color: "01",
+              subtitle: "Mock detail line",
+              kakaoNote: "Imported from mock adapter",
+            },
+            {
+              id: "item-2",
+              title: "Shared grocery ideas",
+              placeKey: "mock-2",
+              color: "02",
+              subtitle: "Mock detail line",
+            },
+            {
+              id: "item-3",
+              title: "Weekend plans",
+              href: "https://example.com/weekend",
+            },
+          ],
         },
         {
           id: `fav-${suffix}-02`,
@@ -119,18 +137,30 @@ export function createMockSyncAdapter(): SyncAdapter {
           updatedAt: now,
           itemCount: 2,
           items: [
-            { id: "item-4", title: "Busan cafe shortlist", placeKey: "mock-4", color: "03", subtitle: "Mock detail line" },
-            { id: "item-5", title: "Jeju trip draft", placeKey: "mock-5", color: "04", subtitle: "Mock detail line" }
-          ]
-        }
+            {
+              id: "item-4",
+              title: "Busan cafe shortlist",
+              placeKey: "mock-4",
+              color: "03",
+              subtitle: "Mock detail line",
+            },
+            {
+              id: "item-5",
+              title: "Jeju trip draft",
+              placeKey: "mock-5",
+              color: "04",
+              subtitle: "Mock detail line",
+            },
+          ],
+        },
       ];
 
       return {
         syncedAt: now,
         source: "mock-kakao-sync-adapter",
-        lists
+        lists,
       };
-    }
+    },
   };
 }
 

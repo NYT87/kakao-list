@@ -6,8 +6,14 @@ import "./styles.css";
 
 initializeTheme();
 
-ReactDOM.createRoot(document.getElementById("root")!).render(
+const rootElement = document.getElementById("root");
+
+if (!rootElement) {
+  throw new Error("Missing #root element for extension options.");
+}
+
+ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
     <OptionsApp />
-  </React.StrictMode>
+  </React.StrictMode>,
 );

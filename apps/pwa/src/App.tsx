@@ -1,17 +1,24 @@
-import { useEffect, useMemo, useState } from "react";
-import {
-  type CloudSession,
-  type FavoriteList,
-  type SyncStatus
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type {
+  CloudSession,
+  FavoriteList,
+  SyncStatus,
 } from "@kakao-lists/domain";
-import { buildKakaoAuthorizeUrl, isKakaoConfigured, readKakaoCallback } from "@kakao-lists/kakao";
+import {
+  buildKakaoAuthorizeUrl,
+  isKakaoConfigured,
+  readKakaoCallback,
+} from "@kakao-lists/kakao";
 import { LocalStorageFavoriteListsRepository } from "@kakao-lists/storage";
 import { HttpCloudSyncClient } from "@kakao-lists/sync";
-import { requestPwaUpdate, subscribeToPwaUpdateAvailability } from "./pwaUpdate";
+import {
+  requestPwaUpdate,
+  subscribeToPwaUpdateAvailability,
+} from "./pwaUpdate";
 import {
   readThemePreference,
   type ThemePreference,
-  writeThemePreference
+  writeThemePreference,
 } from "./theme";
 
 const repository = new LocalStorageFavoriteListsRepository("kakao-lists:pwa");
@@ -21,7 +28,7 @@ const mockAuthEnabled = import.meta.env.VITE_ENABLE_MOCK_AUTH === "true";
 const kakaoConfig = {
   clientId: import.meta.env.VITE_KAKAO_REST_API_KEY ?? "",
   redirectUri: import.meta.env.VITE_KAKAO_REDIRECT_URI ?? "",
-  scope: import.meta.env.VITE_KAKAO_SCOPE?.trim() ?? ""
+  scope: import.meta.env.VITE_KAKAO_SCOPE?.trim() ?? "",
 };
 
 type AppRoute = {
@@ -31,7 +38,9 @@ type AppRoute = {
 };
 
 function getScrollBehavior(): ScrollBehavior {
-  return window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    ? "auto"
+    : "smooth";
 }
 
 export default function App() {
@@ -39,28 +48,42 @@ export default function App() {
   const [lists, setLists] = useState<FavoriteList[]>([]);
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
   const [status, setStatus] = useState<SyncStatus>("idle");
-  const [message, setMessage] = useState<string>("Sign in with Kakao to load your saved lists.");
-  const [cloudSession, setCloudSession] = useState<CloudSession | null>(() => readCloudSession());
+  const [message, setMessage] = useState<string>(
+    "Sign in with Kakao to load your saved lists.",
+  );
+  const [cloudSession, setCloudSession] = useState<CloudSession | null>(() =>
+    readCloudSession(),
+  );
   const [serverVersion, setServerVersion] = useState<number | null>(null);
   const [route, setRoute] = useState<AppRoute>(() => readRoute());
-  const [localNoteDrafts, setLocalNoteDrafts] = useState<Record<string, string>>({});
+  const [localNoteDrafts, setLocalNoteDrafts] = useState<
+    Record<string, string>
+  >({});
   const [listSearch, setListSearch] = useState("");
   const [placeSearch, setPlaceSearch] = useState("");
-  const [themePreference, setThemePreference] = useState<ThemePreference>(() => readThemePreference());
+  const [themePreference, setThemePreference] = useState<ThemePreference>(() =>
+    readThemePreference(),
+  );
   const [toastMessage, setToastMessage] = useState<string | null>(null);
-  const [hasHydratedLocalSnapshot, setHasHydratedLocalSnapshot] = useState(false);
+  const [hasHydratedLocalSnapshot, setHasHydratedLocalSnapshot] =
+    useState(false);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [isApplyingUpdate, setIsApplyingUpdate] = useState(false);
 
   const cloudSync = useMemo(() => {
     return syncServerUrl
-      ? new HttpCloudSyncClient(syncServerUrl, () => readCloudSession()?.token ?? null)
+      ? new HttpCloudSyncClient(
+          syncServerUrl,
+          () => readCloudSession()?.token ?? null,
+        )
       : null;
   }, []);
 
   const deviceId = useMemo(() => getOrCreateDeviceId(), []);
-  const selectedList = route.listId ? lists.find((list) => list.id === route.listId) ?? null : null;
+  const selectedList = route.listId
+    ? (lists.find((list) => list.id === route.listId) ?? null)
+    : null;
   const isSettingsPage = route.view === "settings";
   const isListPage = route.view === "list" && selectedList !== null;
   const showBackButton = route.view !== "overview";
@@ -70,16 +93,25 @@ export default function App() {
     if (!query) {
       return lists.map((list) => ({
         list,
-        matchedItems: []
+        matchedItems: [],
       }));
     }
 
     return lists
       .map((list) => {
-        const listHaystack = [list.name, list.description, list.creatorName].filter(Boolean).join(" ");
+        const listHaystack = [list.name, list.description, list.creatorName]
+          .filter(Boolean)
+          .join(" ");
         const listMatches = listHaystack.toLowerCase().includes(query);
         const matchedItems = list.items.filter((item) => {
-          const haystack = [item.title, item.subtitle, item.kakaoNote, item.localNote].filter(Boolean).join(" ");
+          const haystack = [
+            item.title,
+            item.subtitle,
+            item.kakaoNote,
+            item.localNote,
+          ]
+            .filter(Boolean)
+            .join(" ");
           return haystack.toLowerCase().includes(query);
         });
 
@@ -89,10 +121,17 @@ export default function App() {
 
         return {
           list,
-          matchedItems
+          matchedItems,
         };
       })
-      .filter((entry): entry is { list: FavoriteList; matchedItems: FavoriteList["items"] } => entry !== null);
+      .filter(
+        (
+          entry,
+        ): entry is {
+          list: FavoriteList;
+          matchedItems: FavoriteList["items"];
+        } => entry !== null,
+      );
   }, [listSearch, lists]);
   const filteredItems = useMemo(() => {
     if (!selectedList) {
@@ -105,14 +144,17 @@ export default function App() {
     }
 
     return selectedList.items.filter((item) => {
-      const haystack = [item.title, item.subtitle, item.kakaoNote, item.localNote].filter(Boolean).join(" ");
+      const haystack = [
+        item.title,
+        item.subtitle,
+        item.kakaoNote,
+        item.localNote,
+      ]
+        .filter(Boolean)
+        .join(" ");
       return haystack.toLowerCase().includes(query);
     });
   }, [placeSearch, selectedList]);
-
-  useEffect(() => {
-    void hydrate();
-  }, [callback.code, callback.error, cloudSync]);
 
   useEffect(() => {
     const onHashChange = () => {
@@ -130,11 +172,16 @@ export default function App() {
       return;
     }
 
-    if (route.view === "list" && route.listId && !selectedList && lists.length > 0) {
+    if (
+      route.view === "list" &&
+      route.listId &&
+      !selectedList &&
+      lists.length > 0
+    ) {
       setRoute({
         view: "overview",
         listId: null,
-        itemId: null
+        itemId: null,
       });
       navigateToOverview();
     }
@@ -146,14 +193,19 @@ export default function App() {
     }
 
     const nextDrafts = Object.fromEntries(
-      selectedList.items.map((item) => [item.id, item.localNote ?? ""])
+      selectedList.items.map((item) => [item.id, item.localNote ?? ""]),
     );
     setLocalNoteDrafts(nextDrafts);
   }, [selectedList]);
 
   useEffect(() => {
+    if (selectedList) {
+      setPlaceSearch("");
+      return;
+    }
+
     setPlaceSearch("");
-  }, [selectedList?.id]);
+  }, [selectedList]);
 
   useEffect(() => {
     if (!selectedList || !route.itemId) {
@@ -163,7 +215,7 @@ export default function App() {
     const target = document.getElementById(`place-item-${route.itemId}`);
     target?.scrollIntoView({
       block: "center",
-      behavior: getScrollBehavior()
+      behavior: getScrollBehavior(),
     });
   }, [selectedList, route.itemId]);
 
@@ -174,9 +226,9 @@ export default function App() {
 
     window.scrollTo({
       top: 0,
-      behavior: getScrollBehavior()
+      behavior: getScrollBehavior(),
     });
-  }, [route.itemId, route.listId, route.view]);
+  }, [route.itemId]);
 
   useEffect(() => {
     if (!toastMessage) {
@@ -201,10 +253,49 @@ export default function App() {
     });
   }, []);
 
-  async function hydrate() {
+  const syncOnLoad = useCallback(
+    async (activeCloudSync = cloudSync, activeCloudSession = cloudSession) => {
+      if (!activeCloudSync || !activeCloudSession) {
+        return;
+      }
+
+      setStatus("syncing");
+      setMessage(
+        "Pulling the latest snapshot created by the extension from the sync server...",
+      );
+
+      try {
+        const result = await activeCloudSync.pullLatestSnapshot();
+        setServerVersion(result.serverVersion);
+
+        if (!result.snapshot) {
+          setStatus("ready");
+          setMessage("No extension-created snapshot exists on the server yet.");
+          return;
+        }
+
+        const snapshot = sanitizeSnapshot(result.snapshot);
+        await repository.saveSnapshot(snapshot);
+        setLists(snapshot.lists);
+        setLastSyncedAt(snapshot.syncedAt);
+        setStatus("ready");
+        setMessage(
+          `Loaded ${result.snapshot.lists.length} saved lists created by the extension for Kakao user ${result.userId}.`,
+        );
+      } catch (error) {
+        setStatus("error");
+        setMessage(
+          error instanceof Error ? error.message : "Server pull failed.",
+        );
+      }
+    },
+    [cloudSession, cloudSync],
+  );
+
+  const hydrate = useCallback(async () => {
     const [savedLists, syncedAt] = await Promise.all([
       repository.loadLists(),
-      repository.getLastSyncedAt()
+      repository.getLastSyncedAt(),
     ]);
     setLists(filterVisibleLists(savedLists));
     setLastSyncedAt(syncedAt);
@@ -218,41 +309,55 @@ export default function App() {
 
     if (callback.code && cloudSync) {
       setStatus("syncing");
-      setMessage("Exchanging the Kakao authorization code with the sync server...");
+      setMessage(
+        "Exchanging the Kakao authorization code with the sync server...",
+      );
 
       try {
         const session = await cloudSync.exchangeKakaoCode({
           code: callback.code,
-          redirectUri: kakaoConfig.redirectUri
+          redirectUri: kakaoConfig.redirectUri,
         });
         writeCloudSession(session);
         setCloudSession(session);
-        window.history.replaceState({}, document.title, window.location.pathname + window.location.hash);
+        window.history.replaceState(
+          {},
+          document.title,
+          window.location.pathname + window.location.hash,
+        );
         setStatus("ready");
-        setMessage(`Signed in as Kakao user ${session.user.id}. Pulling the latest snapshot created by the extension...`);
+        setMessage(
+          `Signed in as Kakao user ${session.user.id}. Pulling the latest snapshot created by the extension...`,
+        );
         await syncOnLoad(cloudSync, session);
         return;
       } catch (error) {
         setStatus("error");
-        setMessage(error instanceof Error ? error.message : "Kakao server sign-in failed.");
+        setMessage(
+          error instanceof Error
+            ? error.message
+            : "Kakao server sign-in failed.",
+        );
         return;
       }
     }
 
     if (callback.code) {
       setStatus("ready");
-      setMessage("Authorization code captured. Configure the sync server to turn it into a cloud session.");
+      setMessage(
+        "Authorization code captured. Configure the sync server to turn it into a cloud session.",
+      );
       return;
     }
 
     if (cloudSync && cloudSession) {
       await syncOnLoad(cloudSync, cloudSession);
     }
-  }
+  }, [callback.code, callback.error, cloudSession, cloudSync, syncOnLoad]);
 
-  async function syncLists() {
-    await syncOnLoad();
-  }
+  useEffect(() => {
+    void hydrate();
+  }, [hydrate]);
 
   async function signInWithMock() {
     if (!cloudSync) {
@@ -274,45 +379,16 @@ export default function App() {
       writeCloudSession(session);
       setCloudSession(session);
       setStatus("ready");
-      setMessage(`Signed in with mock auth as ${session.user.id}. Pull the latest snapshot created by the extension when you need it.`);
+      setMessage(
+        `Signed in with mock auth as ${session.user.id}. Pull the latest snapshot created by the extension when you need it.`,
+      );
     } catch (error) {
       setStatus("error");
-      setMessage(error instanceof Error ? error.message : "Mock sign-in failed.");
+      setMessage(
+        error instanceof Error ? error.message : "Mock sign-in failed.",
+      );
     } finally {
       setBusyAction(null);
-    }
-  }
-
-  async function syncOnLoad(
-    activeCloudSync = cloudSync,
-    activeCloudSession = cloudSession
-  ) {
-    if (!activeCloudSync || !activeCloudSession) {
-      return;
-    }
-
-    setStatus("syncing");
-    setMessage("Pulling the latest snapshot created by the extension from the sync server...");
-
-    try {
-      const result = await activeCloudSync.pullLatestSnapshot();
-      setServerVersion(result.serverVersion);
-
-      if (!result.snapshot) {
-        setStatus("ready");
-        setMessage("No extension-created snapshot exists on the server yet.");
-        return;
-      }
-
-      const snapshot = sanitizeSnapshot(result.snapshot);
-      await repository.saveSnapshot(snapshot);
-      setLists(snapshot.lists);
-      setLastSyncedAt(snapshot.syncedAt);
-      setStatus("ready");
-      setMessage(`Loaded ${result.snapshot.lists.length} saved lists created by the extension for Kakao user ${result.userId}.`);
-    } catch (error) {
-      setStatus("error");
-      setMessage(error instanceof Error ? error.message : "Server pull failed.");
     }
   }
 
@@ -352,7 +428,9 @@ export default function App() {
       setLists(snapshot.lists);
       setLastSyncedAt(snapshot.syncedAt);
       setStatus("ready");
-      setMessage(`Pulled server snapshot version ${result.serverVersion} from Kakao user ${result.userId}.`);
+      setMessage(
+        `Pulled server snapshot version ${result.serverVersion} from Kakao user ${result.userId}.`,
+      );
     } catch (error) {
       setStatus("error");
       setMessage(error instanceof Error ? error.message : "Pull failed.");
@@ -370,7 +448,7 @@ export default function App() {
     setRoute({
       view: "overview",
       listId: null,
-      itemId: null
+      itemId: null,
     });
     navigateToOverview();
     setStatus("idle");
@@ -381,7 +459,7 @@ export default function App() {
     setRoute({
       view: "list",
       listId,
-      itemId: itemId ?? null
+      itemId: itemId ?? null,
     });
     window.location.hash = buildListHash(listId, itemId);
   }
@@ -390,7 +468,7 @@ export default function App() {
     setRoute({
       view: "overview",
       listId: null,
-      itemId: null
+      itemId: null,
     });
     navigateToOverview();
   }
@@ -399,7 +477,7 @@ export default function App() {
     setRoute({
       view: "settings",
       listId: null,
-      itemId: null
+      itemId: null,
     });
     window.location.hash = "settings";
   }
@@ -442,7 +520,7 @@ export default function App() {
       const result = await cloudSync.updateLocalNote({
         listId,
         itemId,
-        localNote
+        localNote,
       });
       const snapshot = sanitizeSnapshot(result.snapshot);
       await repository.saveSnapshot(snapshot);
@@ -454,7 +532,9 @@ export default function App() {
       setToastMessage("Note saved");
     } catch (error) {
       setStatus("error");
-      setMessage(error instanceof Error ? error.message : "Local note save failed.");
+      setMessage(
+        error instanceof Error ? error.message : "Local note save failed.",
+      );
     } finally {
       setBusyAction(null);
     }
@@ -477,7 +557,7 @@ export default function App() {
   const authorizeUrl = isKakaoConfigured(kakaoConfig)
     ? buildKakaoAuthorizeUrl({
         ...kakaoConfig,
-        state: "kakao-lists-pwa"
+        state: "kakao-lists-pwa",
       })
     : null;
 
@@ -495,8 +575,9 @@ export default function App() {
           <p className="eyebrow">Kakao Lists / Web</p>
           <h1>Sign in with Kakao.</h1>
           <p className="lede">
-            Your saved lists page appears after an active session exists. The web app now reads the
-            latest snapshot produced by the extension instead of importing directly from Kakao Maps.
+            Your saved lists page appears after an active session exists. The
+            web app now reads the latest snapshot produced by the extension
+            instead of importing directly from Kakao Maps.
           </p>
           <div className="hero-actions">
             {authorizeUrl ? (
@@ -513,7 +594,9 @@ export default function App() {
                 Sign in with Kakao
               </a>
             ) : (
-              <span className="button disabled">Add Kakao env vars to enable real auth</span>
+              <span className="button disabled">
+                Add Kakao env vars to enable real auth
+              </span>
             )}
             {mockAuthEnabled ? (
               <button
@@ -526,7 +609,11 @@ export default function App() {
               </button>
             ) : null}
           </div>
-          <div aria-live="polite" className={`status-card is-${status}`} role="status">
+          <div
+            aria-live="polite"
+            className={`status-card is-${status}`}
+            role="status"
+          >
             <span className="status-label">{status}</span>
             <p>{message}</p>
           </div>
@@ -557,10 +644,22 @@ export default function App() {
         </div>
 
         <div className="topbar-actions">
-          <button aria-label="Settings" className="icon-button" disabled={isBusy} onClick={openSettings} type="button">
+          <button
+            aria-label="Settings"
+            className="icon-button"
+            disabled={isBusy}
+            onClick={openSettings}
+            type="button"
+          >
             <GearIcon />
           </button>
-          <button aria-label="Log out" className="icon-button" disabled={isBusy} onClick={signOutCloud} type="button">
+          <button
+            aria-label="Log out"
+            className="icon-button"
+            disabled={isBusy}
+            onClick={signOutCloud}
+            type="button"
+          >
             <LogoutIcon />
           </button>
         </div>
@@ -574,10 +673,15 @@ export default function App() {
               <div>
                 <h1 className="settings-title">Settings.</h1>
                 <p className="lede settings-lede">
-                  Manage your local cloud session, pull the latest server snapshot, and review sync status in one place.
+                  Manage your local cloud session, pull the latest server
+                  snapshot, and review sync status in one place.
                 </p>
               </div>
-              <div aria-live="polite" className={`status-card is-${status} settings-status`} role="status">
+              <div
+                aria-live="polite"
+                className={`status-card is-${status} settings-status`}
+                role="status"
+              >
                 <span className="status-label">{status}</span>
                 <p>{message}</p>
               </div>
@@ -586,90 +690,114 @@ export default function App() {
 
           <div className="grid settings-grid">
             <article className="panel">
-            <h2>Appearance</h2>
-            <div className="segmented-control" role="group" aria-label="Theme preference">
-              {(["system", "light", "dark"] as const).map((option) => (
+              <h2>Appearance</h2>
+              <fieldset
+                className="segmented-control"
+                aria-label="Theme preference"
+              >
+                {(["system", "light", "dark"] as const).map((option) => (
+                  <button
+                    aria-pressed={themePreference === option}
+                    className={`segment${themePreference === option ? " is-active" : ""}`}
+                    key={option}
+                    onClick={() => updateThemePreference(option)}
+                    type="button"
+                  >
+                    {option}
+                  </button>
+                ))}
+              </fieldset>
+              <p className="panel-copy">Default follows your device setting.</p>
+            </article>
+
+            <article className="panel">
+              <h2>App Update</h2>
+              <dl className="meta-list update-meta">
+                <div>
+                  <dt>Status</dt>
+                  <dd>
+                    {updateAvailable ? "New version ready" : "Up to date"}
+                  </dd>
+                </div>
+              </dl>
+              <div className="hero-actions compact update-actions">
                 <button
-                  aria-pressed={themePreference === option}
-                  className={`segment${themePreference === option ? " is-active" : ""}`}
-                  key={option}
-                  onClick={() => updateThemePreference(option)}
+                  className="button primary"
+                  disabled={!updateAvailable || isApplyingUpdate || isBusy}
+                  onClick={applyPwaUpdate}
                   type="button"
                 >
-                  {option}
+                  {isApplyingUpdate ? "Updating…" : "Update now"}
                 </button>
-              ))}
-            </div>
-            <p className="panel-copy">Default follows your device setting.</p>
-          </article>
+              </div>
+              <p className="panel-copy">
+                {updateAvailable
+                  ? "A newer app version has been downloaded and is ready to activate."
+                  : "This device is already using the latest downloaded app version."}
+              </p>
+            </article>
 
-          <article className="panel">
-            <h2>App Update</h2>
-            <dl className="meta-list update-meta">
-              <div>
-                <dt>Status</dt>
-                <dd>{updateAvailable ? "New version ready" : "Up to date"}</dd>
-              </div>
-            </dl>
-            <div className="hero-actions compact update-actions">
-              <button
-                className="button primary"
-                disabled={!updateAvailable || isApplyingUpdate || isBusy}
-                onClick={applyPwaUpdate}
-                type="button"
-              >
-                {isApplyingUpdate ? "Updating…" : "Update now"}
-              </button>
-            </div>
-            <p className="panel-copy">
-              {updateAvailable
-                ? "A newer app version has been downloaded and is ready to activate."
-                : "This device is already using the latest downloaded app version."}
-            </p>
-          </article>
+            <article className="panel">
+              <h2>Session Information</h2>
+              <dl className="meta-list">
+                <div>
+                  <dt>Kakao user</dt>
+                  <dd>{cloudSession.user.id}</dd>
+                </div>
+                <div>
+                  <dt>Expires at</dt>
+                  <dd>{formatDate(cloudSession.expiresAt)}</dd>
+                </div>
+                <div>
+                  <dt>Last synced</dt>
+                  <dd>{lastSyncedAt ?? "Never"}</dd>
+                </div>
+                <div>
+                  <dt>Device id</dt>
+                  <dd>{deviceId}</dd>
+                </div>
+                <div>
+                  <dt>Server version</dt>
+                  <dd>{serverVersion ?? "Not pushed yet"}</dd>
+                </div>
+              </dl>
+            </article>
 
-          <article className="panel">
-            <h2>Session Information</h2>
-            <dl className="meta-list">
-              <div>
-                <dt>Kakao user</dt>
-                <dd>{cloudSession.user.id}</dd>
+            <article className="panel">
+              <h2>Cloud Sync</h2>
+              <div className="hero-actions compact">
+                <button
+                  className="button primary"
+                  disabled={isBusy}
+                  onClick={pullFromServer}
+                  type="button"
+                >
+                  Pull Latest Server Snapshot
+                </button>
+                <button
+                  className="button secondary"
+                  disabled={isBusy}
+                  onClick={signOutCloud}
+                  type="button"
+                >
+                  Clear Cloud Session
+                </button>
               </div>
-              <div>
-                <dt>Expires at</dt>
-                <dd>{formatDate(cloudSession.expiresAt)}</dd>
-              </div>
-              <div>
-                <dt>Last synced</dt>
-                <dd>{lastSyncedAt ?? "Never"}</dd>
-              </div>
-              <div>
-                <dt>Device id</dt>
-                <dd>{deviceId}</dd>
-              </div>
-              <div>
-                <dt>Server version</dt>
-                <dd>{serverVersion ?? "Not pushed yet"}</dd>
-              </div>
-            </dl>
-          </article>
-
-          <article className="panel">
-            <h2>Cloud Sync</h2>
-            <div className="hero-actions compact">
-              <button className="button primary" disabled={isBusy} onClick={pullFromServer} type="button">
-                Pull Latest Server Snapshot
-              </button>
-              <button className="button secondary" disabled={isBusy} onClick={signOutCloud} type="button">
-                Clear Cloud Session
-              </button>
-            </div>
-            <ul className="bullet-list">
-              <li>List overview cards now hide place rows until you open a dedicated list page.</li>
-              <li>List metadata can show description and creator when the snapshot includes it.</li>
-              <li>The PWA is read-only for snapshots; create or refresh them from the extension popup.</li>
-            </ul>
-          </article>
+              <ul className="bullet-list">
+                <li>
+                  List overview cards now hide place rows until you open a
+                  dedicated list page.
+                </li>
+                <li>
+                  List metadata can show description and creator when the
+                  snapshot includes it.
+                </li>
+                <li>
+                  The PWA is read-only for snapshots; create or refresh them
+                  from the extension popup.
+                </li>
+              </ul>
+            </article>
           </div>
         </section>
       ) : isListPage ? (
@@ -678,10 +806,16 @@ export default function App() {
             <article className="panel detail-summary-card">
               <div className="detail-summary-header">
                 <h2>{selectedList.name}</h2>
-                <span className="detail-summary-count">{formatCountLabel(filteredItems.length, "place", "places")}</span>
+                <span className="detail-summary-count">
+                  {formatCountLabel(filteredItems.length, "place", "places")}
+                </span>
               </div>
-              {selectedList.description ? <p>{selectedList.description}</p> : null}
-              <span className="detail-summary-author">By {selectedList.creatorName ?? "Unknown creator"}</span>
+              {selectedList.description ? (
+                <p>{selectedList.description}</p>
+              ) : null}
+              <span className="detail-summary-author">
+                By {selectedList.creatorName ?? "Unknown creator"}
+              </span>
             </article>
           </section>
 
@@ -722,7 +856,10 @@ export default function App() {
                             <MapPinIcon />
                           </a>
                         ) : (
-                          <span className="place-map-link is-placeholder" aria-hidden="true" />
+                          <span
+                            className="place-map-link is-placeholder"
+                            aria-hidden="true"
+                          />
                         )}
                         <div className="place-copy">
                           <strong>{item.title}</strong>
@@ -734,7 +871,9 @@ export default function App() {
                                 <button
                                   aria-label="Copy Kakao note"
                                   className="copy-note-button"
-                                  onClick={() => void copyKakaoNote(item.kakaoNote ?? "")}
+                                  onClick={() =>
+                                    void copyKakaoNote(item.kakaoNote ?? "")
+                                  }
                                   title="Copy Kakao note"
                                   type="button"
                                 >
@@ -753,7 +892,7 @@ export default function App() {
                               onChange={(event) =>
                                 setLocalNoteDrafts((current) => ({
                                   ...current,
-                                  [item.id]: event.target.value
+                                  [item.id]: event.target.value,
                                 }))
                               }
                               placeholder="Add your own note"
@@ -764,7 +903,9 @@ export default function App() {
                           aria-label="Save local note"
                           className="button secondary note-save"
                           disabled={isBusy}
-                          onClick={() => void saveLocalNote(selectedList.id, item.id)}
+                          onClick={() =>
+                            void saveLocalNote(selectedList.id, item.id)
+                          }
                           title="Save local note"
                           type="button"
                         >
@@ -795,7 +936,10 @@ export default function App() {
           {lists.length === 0 ? (
             <div className="empty-state">
               <p>No lists stored yet.</p>
-              <p>The next authenticated load will sync the latest Kakao snapshot into local storage.</p>
+              <p>
+                The next authenticated load will sync the latest Kakao snapshot
+                into local storage.
+              </p>
             </div>
           ) : filteredLists.length === 0 ? (
             <div className="empty-state compact-empty-state">
@@ -806,19 +950,29 @@ export default function App() {
             <div className="overview-grid">
               {filteredLists.map(({ list, matchedItems }) => (
                 <article className="overview-card" key={list.id}>
-                  <button className="overview-card-button" onClick={() => openList(list.id)} type="button">
+                  <button
+                    className="overview-card-button"
+                    onClick={() => openList(list.id)}
+                    type="button"
+                  >
                     <div className="overview-header">
                       <div className="overview-title-row">
                         <h3>{list.name}</h3>
-                        <span className="overview-count">{formatCountLabel(list.itemCount, "place", "places")}</span>
+                        <span className="overview-count">
+                          {formatCountLabel(list.itemCount, "place", "places")}
+                        </span>
                       </div>
-                      <span className="overview-creator">{list.creatorName ?? "Unknown creator"}</span>
+                      <span className="overview-creator">
+                        {list.creatorName ?? "Unknown creator"}
+                      </span>
                     </div>
                   </button>
 
                   {matchedItems.length > 0 ? (
                     <section className="overview-matches">
-                      <span className="overview-matches-label">Matching places</span>
+                      <span className="overview-matches-label">
+                        Matching places
+                      </span>
                       <ul className="overview-match-list">
                         {matchedItems.map((item) => (
                           <li className="overview-match-item" key={item.id}>
@@ -828,7 +982,9 @@ export default function App() {
                               type="button"
                             >
                               <strong>{item.title}</strong>
-                              {item.subtitle ? <span>{item.subtitle}</span> : null}
+                              {item.subtitle ? (
+                                <span>{item.subtitle}</span>
+                              ) : null}
                             </button>
                           </li>
                         ))}
@@ -842,7 +998,11 @@ export default function App() {
         </section>
       )}
 
-      {toastMessage ? <div aria-live="polite" className="toast" role="status">{toastMessage}</div> : null}
+      {toastMessage ? (
+        <div aria-live="polite" className="toast" role="status">
+          {toastMessage}
+        </div>
+      ) : null}
     </main>
   );
 }
@@ -855,7 +1015,7 @@ function readRoute(): AppRoute {
     return {
       view: "settings",
       listId: null,
-      itemId: null
+      itemId: null,
     };
   }
 
@@ -865,14 +1025,14 @@ function readRoute(): AppRoute {
     return {
       view: "list",
       listId: decodeURIComponent(route.slice("list/".length)),
-      itemId: itemId ? decodeURIComponent(itemId) : null
+      itemId: itemId ? decodeURIComponent(itemId) : null,
     };
   }
 
   return {
     view: "overview",
     listId: null,
-    itemId: null
+    itemId: null,
   };
 }
 
@@ -883,15 +1043,19 @@ function buildListHash(listId: string, itemId?: string) {
   }
 
   const params = new URLSearchParams({
-    item: itemId
+    item: itemId,
   });
   return `${route}?${params.toString()}`;
 }
 
-function sanitizeSnapshot(snapshot: { syncedAt: string; source: string; lists: FavoriteList[] }) {
+function sanitizeSnapshot(snapshot: {
+  syncedAt: string;
+  source: string;
+  lists: FavoriteList[];
+}) {
   return {
     ...snapshot,
-    lists: filterVisibleLists(snapshot.lists)
+    lists: filterVisibleLists(snapshot.lists),
   };
 }
 
@@ -917,7 +1081,7 @@ function formatDate(value: string) {
 
   return new Intl.DateTimeFormat(getUserLocale(), {
     dateStyle: "medium",
-    timeStyle: "short"
+    timeStyle: "short",
   }).format(date);
 }
 
@@ -967,7 +1131,10 @@ function readCloudSession(): CloudSession | null {
 }
 
 function writeCloudSession(session: CloudSession) {
-  window.localStorage.setItem("kakao-lists:cloud-session", JSON.stringify(session));
+  window.localStorage.setItem(
+    "kakao-lists:cloud-session",
+    JSON.stringify(session),
+  );
 }
 
 function clearCloudSession() {
@@ -1000,7 +1167,14 @@ function GearIcon() {
         strokeLinejoin="round"
         strokeWidth="1.5"
       />
-      <circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" strokeWidth="1.5" />
+      <circle
+        cx="12"
+        cy="12"
+        r="3.2"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+      />
     </svg>
   );
 }
@@ -1039,7 +1213,14 @@ function MapPinIcon() {
         strokeLinejoin="round"
         strokeWidth="1.8"
       />
-      <circle cx="12" cy="11" r="2.2" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      <circle
+        cx="12"
+        cy="11"
+        r="2.2"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+      />
     </svg>
   );
 }

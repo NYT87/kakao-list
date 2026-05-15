@@ -1,5 +1,153 @@
 # Progress Log
 
+## Session: 2026-05-16 (`pnpm lint:fix` Cleanup)
+
+### Phase 1: Requirements & Discovery
+- **Status:** complete
+- Actions taken:
+  - Ran `pnpm lint:fix` and captured the blocking Biome diagnostics.
+  - Inspected the affected extension and PWA files to isolate the concrete React, a11y, CSS, and unused-symbol issues.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/task_plan.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+### Phase 2: Implementation
+- **Status:** complete
+- Actions taken:
+  - Removed unused helpers/imports/interfaces and cleaned up one useless fragment.
+  - Replaced non-null root element assertions with explicit runtime checks in the extension and PWA entrypoints.
+  - Fixed segmented-control semantics, label semantics, and reduced-motion CSS warnings.
+  - Stabilized or rewired React hook dependencies in the extension popup/options and the PWA.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/extension/src/OptionsApp.tsx`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/extension/src/PopupApp.tsx`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/extension/src/kakaoMapsExtractor.ts`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/extension/src/options-main.tsx`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/extension/src/popup-main.tsx`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/extension/src/styles.css`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/pwa/src/App.tsx`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/pwa/src/main.tsx`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/pwa/src/styles.css`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/task_plan.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+### Phase 3: Verification
+- **Status:** complete
+- Actions taken:
+  - Ran `pnpm lint:fix` successfully.
+  - Ran `pnpm typecheck` successfully from the repo root.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/task_plan.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+## Session: 2026-05-16 (Package Rename + Debug Flag)
+
+### Phase 1: Requirements & Discovery
+- **Status:** complete
+- Actions taken:
+  - Inspected the current root package name and workspace package namespace.
+  - Located all visible `Debug` sections in the extension popup and options page.
+  - Confirmed that a plain `DEBUG_MODE` variable must be injected through Vite config for browser-side access.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/task_plan.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+### Phase 2: Planning & Findings
+- **Status:** complete
+- Actions taken:
+  - Replaced the stale `task_plan.md` with a plan for the package rename and debug-flag work.
+  - Recorded the debug-flag and package-rename decisions in `findings.md`.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/task_plan.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+### Phase 3: Implementation
+- **Status:** complete
+- Actions taken:
+  - Renamed the root package from `kakao-lists` to `@nyt87/kakao-lists`.
+  - Added `DEBUG_MODE` to `.env.example`.
+  - Exposed `DEBUG_MODE` to the extension and PWA browser bundles through Vite `define` config.
+  - Added extension-side TypeScript declarations for the injected `__DEBUG_MODE__` constant.
+  - Gated all visible extension `Debug` cards so they render only when `DEBUG_MODE=true` at build time.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/package.json`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/.env.example`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/extension/vite.config.ts`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/pwa/vite.config.ts`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/extension/src/vite-env.d.ts`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/pwa/src/vite-env.d.ts`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/extension/src/PopupApp.tsx`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/extension/src/OptionsApp.tsx`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/task_plan.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+### Phase 4: Testing & Verification
+- **Status:** complete
+- Actions taken:
+  - Ran `pnpm --filter @kakao-lists/extension build` successfully.
+  - Ran `pnpm --filter @kakao-lists/pwa build` successfully.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/task_plan.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+## Session: 2026-05-16 (Biome Setup)
+
+### Phase 1: Requirements & Discovery
+- **Status:** complete
+- Actions taken:
+  - Inspected the root package scripts, root ignore files, and config surface.
+  - Confirmed there is no existing Biome, ESLint, or Prettier configuration in the repo.
+  - Identified the need for one repo-level Biome config plus root scripts and generated-file exclusions.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/task_plan.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+### Phase 2: Planning & Findings
+- **Status:** complete
+- Actions taken:
+  - Replaced the stale `task_plan.md` with a plan for the Biome setup.
+  - Recorded the Biome setup decisions in `findings.md`.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/task_plan.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+### Phase 3: Implementation
+- **Status:** complete
+- Actions taken:
+  - Installed `@biomejs/biome@^2.4.15` as a root dev dependency with pnpm.
+  - Added a root `biome.json` with repo-level formatter, linter, and organize-imports settings.
+  - Added root scripts for `check`, `lint`, `lint:fix`, `format`, and `format:write`.
+  - Added `*.tsbuildinfo` to `.gitignore` so generated TypeScript build metadata stays out of both Git and Biome scans.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/package.json`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/pnpm-lock.yaml`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/biome.json`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/.gitignore`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/task_plan.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+### Phase 4: Testing & Verification
+- **Status:** complete
+- Actions taken:
+  - Ran `pnpm exec biome --version` and confirmed `2.4.15`.
+  - Ran `pnpm exec biome check biome.json package.json` successfully.
+  - Ran a broader sample `pnpm exec biome check ...` pass and confirmed the setup works, while surfacing pre-existing repo issues that were not fixed in this pass.
+  - Ran `pnpm exec biome lint apps/server/src/index.ts --max-diagnostics=10` successfully.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/task_plan.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
 ## Session: 2026-05-15 (Extension Place-Modal Detection)
 
 ### Phase 1: Requirements & Discovery

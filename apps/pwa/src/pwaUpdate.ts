@@ -14,32 +14,38 @@ export function registerPwaUpdateLifecycle() {
   let refreshing = false;
 
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/sw.js").then((registration) => {
-      activeRegistration = registration;
+    navigator.serviceWorker
+      .register("/sw.js")
+      .then((registration) => {
+        activeRegistration = registration;
 
-      if (registration.waiting) {
-        emitUpdateAvailability(true);
-      }
-
-      registration.addEventListener("updatefound", () => {
-        const nextWorker = registration.installing;
-        if (!nextWorker) {
-          return;
+        if (registration.waiting) {
+          emitUpdateAvailability(true);
         }
 
-        nextWorker.addEventListener("statechange", () => {
-          if (nextWorker.state === "installed" && navigator.serviceWorker.controller) {
-            emitUpdateAvailability(true);
+        registration.addEventListener("updatefound", () => {
+          const nextWorker = registration.installing;
+          if (!nextWorker) {
+            return;
           }
-        });
-      });
 
-      void registration.update().catch(() => {
-        // Ignore update polling errors in the scaffold stage.
+          nextWorker.addEventListener("statechange", () => {
+            if (
+              nextWorker.state === "installed" &&
+              navigator.serviceWorker.controller
+            ) {
+              emitUpdateAvailability(true);
+            }
+          });
+        });
+
+        void registration.update().catch(() => {
+          // Ignore update polling errors in the scaffold stage.
+        });
+      })
+      .catch(() => {
+        // Ignore registration errors in the scaffold stage.
       });
-    }).catch(() => {
-      // Ignore registration errors in the scaffold stage.
-    });
   });
 
   navigator.serviceWorker.addEventListener("controllerchange", () => {
@@ -59,14 +65,14 @@ export function requestPwaUpdate() {
   }
 
   waitingWorker.postMessage({
-    type: "SKIP_WAITING"
+    type: "SKIP_WAITING",
   });
   emitUpdateAvailability(false);
   return true;
 }
 
 export function subscribeToPwaUpdateAvailability(
-  listener: (detail: UpdateEventDetail) => void
+  listener: (detail: UpdateEventDetail) => void,
 ) {
   const handler = (event: Event) => {
     const customEvent = event as CustomEvent<UpdateEventDetail>;
@@ -83,8 +89,8 @@ function emitUpdateAvailability(available: boolean) {
   window.dispatchEvent(
     new CustomEvent<UpdateEventDetail>(UPDATE_EVENT, {
       detail: {
-        available
-      }
-    })
+        available,
+      },
+    }),
   );
 }

@@ -11,10 +11,15 @@ export interface SqliteEngine {
   all<T>(sql: string, params?: unknown[]): Promise<T[]>;
 }
 
-export class LocalStorageFavoriteListsRepository implements FavoriteListsRepository {
+export class LocalStorageFavoriteListsRepository
+  implements FavoriteListsRepository
+{
   constructor(
     private readonly storageKey: string,
-    private readonly storage: Pick<Storage, "getItem" | "setItem"> = window.localStorage
+    private readonly storage: Pick<
+      Storage,
+      "getItem" | "setItem"
+    > = window.localStorage,
   ) {}
 
   async loadLists(): Promise<FavoriteList[]> {
@@ -47,10 +52,10 @@ export class SqliteFavoriteListsRepository implements FavoriteListsRepository {
 
   async initialize(): Promise<void> {
     await this.engine.run(
-      "CREATE TABLE IF NOT EXISTS favorite_lists (id TEXT PRIMARY KEY, name TEXT NOT NULL, updated_at TEXT NOT NULL, item_count INTEGER NOT NULL, items_json TEXT NOT NULL)"
+      "CREATE TABLE IF NOT EXISTS favorite_lists (id TEXT PRIMARY KEY, name TEXT NOT NULL, updated_at TEXT NOT NULL, item_count INTEGER NOT NULL, items_json TEXT NOT NULL)",
     );
     await this.engine.run(
-      "CREATE TABLE IF NOT EXISTS sync_metadata (id INTEGER PRIMARY KEY CHECK (id = 1), synced_at TEXT NOT NULL, source TEXT NOT NULL)"
+      "CREATE TABLE IF NOT EXISTS sync_metadata (id INTEGER PRIMARY KEY CHECK (id = 1), synced_at TEXT NOT NULL, source TEXT NOT NULL)",
     );
   }
 
@@ -62,7 +67,7 @@ export class SqliteFavoriteListsRepository implements FavoriteListsRepository {
       item_count: number;
       items_json: string;
     }>(
-      "SELECT id, name, updated_at, item_count, items_json FROM favorite_lists ORDER BY updated_at DESC"
+      "SELECT id, name, updated_at, item_count, items_json FROM favorite_lists ORDER BY updated_at DESC",
     );
 
     return rows.map((row) => ({
@@ -70,7 +75,7 @@ export class SqliteFavoriteListsRepository implements FavoriteListsRepository {
       name: row.name,
       updatedAt: row.updated_at,
       itemCount: row.item_count,
-      items: JSON.parse(row.items_json) as FavoriteList["items"]
+      items: JSON.parse(row.items_json) as FavoriteList["items"],
     }));
   }
 
@@ -80,22 +85,27 @@ export class SqliteFavoriteListsRepository implements FavoriteListsRepository {
     for (const list of snapshot.lists) {
       await this.engine.run(
         "INSERT INTO favorite_lists (id, name, updated_at, item_count, items_json) VALUES (?, ?, ?, ?, ?)",
-        [list.id, list.name, list.updatedAt, list.itemCount, JSON.stringify(list.items)]
+        [
+          list.id,
+          list.name,
+          list.updatedAt,
+          list.itemCount,
+          JSON.stringify(list.items),
+        ],
       );
     }
 
     await this.engine.run("DELETE FROM sync_metadata WHERE id = 1");
     await this.engine.run(
       "INSERT INTO sync_metadata (id, synced_at, source) VALUES (1, ?, ?)",
-      [snapshot.syncedAt, snapshot.source]
+      [snapshot.syncedAt, snapshot.source],
     );
   }
 
   async getLastSyncedAt(): Promise<string | null> {
     const rows = await this.engine.all<{ synced_at: string }>(
-      "SELECT synced_at FROM sync_metadata WHERE id = 1"
+      "SELECT synced_at FROM sync_metadata WHERE id = 1",
     );
     return rows[0]?.synced_at ?? null;
   }
 }
-

@@ -1,24 +1,33 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CloudSession, SyncStatus } from "@kakao-lists/domain";
 import { LocalStorageFavoriteListsRepository } from "@kakao-lists/storage";
 import { HttpCloudSyncClient } from "@kakao-lists/sync";
 import {
   readThemePreference,
   type ThemePreference,
-  writeThemePreference
+  writeThemePreference,
 } from "./theme";
 
-const repository = new LocalStorageFavoriteListsRepository("kakao-lists:extension");
+const repository = new LocalStorageFavoriteListsRepository(
+  "kakao-lists:extension",
+);
 const syncServerUrl = import.meta.env.VITE_SYNC_SERVER_URL ?? "";
+const debugMode = __DEBUG_MODE__;
 
 export default function OptionsApp() {
-  const [cloudSession, setCloudSession] = useState<CloudSession | null>(() => readCloudSession());
+  const [cloudSession] = useState<CloudSession | null>(() =>
+    readCloudSession(),
+  );
   const [status, setStatus] = useState<SyncStatus>("idle");
-  const [message, setMessage] = useState("Use these controls to manage the extension snapshot cache and session.");
+  const [message, setMessage] = useState(
+    "Use these controls to manage the extension snapshot cache and session.",
+  );
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
   const [storedListCount, setStoredListCount] = useState(0);
   const [serverVersion, setServerVersion] = useState<number | null>(null);
-  const [themePreference, setThemePreference] = useState<ThemePreference>(() => readThemePreference());
+  const [themePreference, setThemePreference] = useState<ThemePreference>(() =>
+    readThemePreference(),
+  );
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const redirectUri =
     typeof chrome !== "undefined" && chrome.identity?.getRedirectURL
@@ -28,23 +37,22 @@ export default function OptionsApp() {
 
   const cloudSync = useMemo(() => {
     return syncServerUrl
-      ? new HttpCloudSyncClient(syncServerUrl, () => readCloudSession()?.token ?? null)
+      ? new HttpCloudSyncClient(
+          syncServerUrl,
+          () => readCloudSession()?.token ?? null,
+        )
       : null;
   }, []);
 
-  useEffect(() => {
-    void hydrateLocalState();
-  }, []);
-
-  async function hydrateLocalState() {
+  const hydrateLocalState = useCallback(async () => {
     const [lists, syncedAt] = await Promise.all([
       repository.loadLists(),
-      repository.getLastSyncedAt()
+      repository.getLastSyncedAt(),
     ]);
     setStoredListCount(lists.length);
     setLastSyncedAt(syncedAt);
     setServerVersion(readLastKnownServerVersion());
-  }
+  }, []);
 
   async function pullServerData() {
     if (!cloudSync || !cloudSession) {
@@ -76,22 +84,17 @@ export default function OptionsApp() {
       setLastSyncedAt(result.snapshot.syncedAt);
       writeLastKnownServerVersion(result.serverVersion);
       setStatus("ready");
-      setMessage(`Pulled server snapshot version ${result.serverVersion ?? "unknown"} into local extension storage.`);
+      setMessage(
+        `Pulled server snapshot version ${result.serverVersion ?? "unknown"} into local extension storage.`,
+      );
     } catch (error) {
       setStatus("error");
-      setMessage(error instanceof Error ? error.message : "Server pull failed.");
+      setMessage(
+        error instanceof Error ? error.message : "Server pull failed.",
+      );
     } finally {
       setBusyAction(null);
     }
-  }
-
-  function signOut() {
-    clearCloudSession();
-    setCloudSession(null);
-    setServerVersion(null);
-    setStatus("idle");
-    setMessage("Cloud session cleared from the extension.");
-    window.location.replace("popup.html");
   }
 
   async function clearLocalData() {
@@ -105,7 +108,9 @@ export default function OptionsApp() {
     setStoredListCount(0);
     setLastSyncedAt(null);
     setStatus("ready");
-    setMessage("All local extension snapshot data was cleared. Your server copy was not changed.");
+    setMessage(
+      "All local extension snapshot data was cleared. Your server copy was not changed.",
+    );
     setBusyAction(null);
   }
 
@@ -114,11 +119,21 @@ export default function OptionsApp() {
     writeThemePreference(nextPreference);
   }
 
+  useEffect(() => {
+    void hydrateLocalState();
+  }, [hydrateLocalState]);
+
   return (
     <main className="options-shell">
       <header className="popup-header popup-header-options">
-        <a className="icon-link" aria-label="Back to popup" href="popup.html" title="Back to popup">
+        <a
+          className="icon-link"
+          aria-label="Back to popup"
+          href="popup.html"
+          title="Back to popup"
+        >
           <span aria-hidden="true">←</span>
+          <span className="sr-only">Back to popup</span>
         </a>
         <div className="badge">Options</div>
         <span className="header-spacer" aria-hidden="true" />
@@ -127,7 +142,7 @@ export default function OptionsApp() {
       <section className="options-panel">
         <section className="options-panel-section">
           <div className="section-label">Appearance</div>
-          <div className="segmented-control" role="group" aria-label="Theme preference">
+          <fieldset className="segmented-control" aria-label="Theme preference">
             {(["system", "light", "dark"] as const).map((option) => (
               <button
                 aria-pressed={themePreference === option}
@@ -139,14 +154,24 @@ export default function OptionsApp() {
                 {option}
               </button>
             ))}
-          </div>
+          </fieldset>
         </section>
 
         <div className="actions actions-stacked">
-          <button className="button primary" disabled={isBusy} onClick={() => void pullServerData()} type="button">
+          <button
+            className="button primary"
+            disabled={isBusy}
+            onClick={() => void pullServerData()}
+            type="button"
+          >
             Pull Server Data
           </button>
-          <button className="button danger" disabled={isBusy} onClick={() => void clearLocalData()} type="button">
+          <button
+            className="button danger"
+            disabled={isBusy}
+            onClick={() => void clearLocalData()}
+            type="button"
+          >
             Clear All Local Data
           </button>
         </div>
@@ -182,27 +207,39 @@ export default function OptionsApp() {
         </section>
       </section>
 
-      <section className="mini-panel options-debug-card">
-        <div className="section-label">Debug</div>
-        <ul className="options-list">
-          <li>The extension popup signs in through `chrome.identity.launchWebAuthFlow`.</li>
-          <li>
-            Register this exact Kakao redirect URI in Kakao Developers:
-            <code>{redirectUri}</code>
-          </li>
-          <li>
-            If the URI keeps changing after reinstalling the unpacked extension, set
-            <code>EXTENSION_PUBLIC_KEY</code> before building so the extension id stays fixed.
-          </li>
-          <li>Clearing local data removes the extension cache and local device id only. It does not delete the server snapshot.</li>
-        </ul>
-      </section>
+      {debugMode ? (
+        <section className="mini-panel options-debug-card">
+          <div className="section-label">Debug</div>
+          <ul className="options-list">
+            <li>
+              The extension popup signs in through
+              `chrome.identity.launchWebAuthFlow`.
+            </li>
+            <li>
+              Register this exact Kakao redirect URI in Kakao Developers:
+              <code>{redirectUri}</code>
+            </li>
+            <li>
+              If the URI keeps changing after reinstalling the unpacked
+              extension, set
+              <code>EXTENSION_PUBLIC_KEY</code> before building so the extension
+              id stays fixed.
+            </li>
+            <li>
+              Clearing local data removes the extension cache and local device
+              id only. It does not delete the server snapshot.
+            </li>
+          </ul>
+        </section>
+      ) : null}
     </main>
   );
 }
 
 function readCloudSession(): CloudSession | null {
-  const raw = window.localStorage.getItem("kakao-lists:extension-cloud-session");
+  const raw = window.localStorage.getItem(
+    "kakao-lists:extension-cloud-session",
+  );
   if (!raw) {
     return null;
   }
@@ -237,7 +274,9 @@ function clearLocalExtensionData() {
 }
 
 function readLastKnownServerVersion(): number | null {
-  const raw = window.localStorage.getItem("kakao-lists:extension-server-version");
+  const raw = window.localStorage.getItem(
+    "kakao-lists:extension-server-version",
+  );
   if (!raw) {
     return null;
   }
@@ -252,7 +291,10 @@ function writeLastKnownServerVersion(serverVersion: number | null) {
     return;
   }
 
-  window.localStorage.setItem("kakao-lists:extension-server-version", String(serverVersion));
+  window.localStorage.setItem(
+    "kakao-lists:extension-server-version",
+    String(serverVersion),
+  );
 }
 
 function formatDate(value: string | null) {
@@ -267,7 +309,7 @@ function formatDate(value: string | null) {
 
   return new Intl.DateTimeFormat(getUserLocale(), {
     dateStyle: "medium",
-    timeStyle: "short"
+    timeStyle: "short",
   }).format(date);
 }
 

@@ -1,17 +1,28 @@
-import { useEffect, useMemo, useState } from "react";
-import type { CloudSession, FavoriteList, FavoriteListItem, SyncStatus } from "@kakao-lists/domain";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type {
+  CloudSession,
+  FavoriteList,
+  SyncStatus,
+} from "@kakao-lists/domain";
 import { buildKakaoAuthorizeUrl } from "@kakao-lists/kakao";
 import { LocalStorageFavoriteListsRepository } from "@kakao-lists/storage";
 import { HttpCloudSyncClient } from "@kakao-lists/sync";
 import { extractSnapshotFromKakaoMapsTab } from "./kakaoMapsExtractor";
-import { readThemePreference, type ThemePreference, writeThemePreference } from "./theme";
+import {
+  readThemePreference,
+  type ThemePreference,
+  writeThemePreference,
+} from "./theme";
 
-const repository = new LocalStorageFavoriteListsRepository("kakao-lists:extension");
+const repository = new LocalStorageFavoriteListsRepository(
+  "kakao-lists:extension",
+);
 const syncServerUrl = import.meta.env.VITE_SYNC_SERVER_URL ?? "";
 const kakaoClientId = import.meta.env.VITE_KAKAO_REST_API_KEY ?? "";
 const kakaoScope = import.meta.env.VITE_KAKAO_SCOPE ?? "";
 const pwaBaseUrl = import.meta.env.VITE_PWA_BASE_URL ?? "http://localhost:5173";
 const mockAuthEnabled = import.meta.env.VITE_ENABLE_MOCK_AUTH === "true";
+const debugMode = __DEBUG_MODE__;
 const extensionRedirectPath = "kakao";
 
 interface ActiveTabContext {
@@ -23,28 +34,31 @@ interface ActiveTabContext {
   source?: "url" | "modal";
 }
 
-interface PlaceMembership {
-  list: FavoriteList;
-  item: FavoriteListItem;
-}
-
 type PopupView = "main" | "settings";
 
 export default function PopupApp() {
-  const [cloudSession, setCloudSession] = useState<CloudSession | null>(() => readCloudSession());
+  const [cloudSession, setCloudSession] = useState<CloudSession | null>(() =>
+    readCloudSession(),
+  );
   const [lists, setLists] = useState<FavoriteList[]>([]);
   const [status, setStatus] = useState<SyncStatus>("idle");
-  const [message, setMessage] = useState("Sign in with Kakao to load your saved lists.");
+  const [message, setMessage] = useState(
+    "Sign in with Kakao to load your saved lists.",
+  );
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
   const [serverVersion, setServerVersion] = useState<number | null>(null);
-  const [debugLines, setDebugLines] = useState<string[]>([]);
-  const [localNoteDrafts, setLocalNoteDrafts] = useState<Record<string, string>>({});
+  const [_debugLines, setDebugLines] = useState<string[]>([]);
+  const [localNoteDrafts, setLocalNoteDrafts] = useState<
+    Record<string, string>
+  >({});
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [view, setView] = useState<PopupView>("main");
-  const [themePreference, setThemePreference] = useState<ThemePreference>(() => readThemePreference());
+  const [themePreference, setThemePreference] = useState<ThemePreference>(() =>
+    readThemePreference(),
+  );
   const [activeTab, setActiveTab] = useState<ActiveTabContext>({
     kind: "default",
-    tabId: null
+    tabId: null,
   });
   const deviceId = useMemo(() => getOrCreateDeviceId(), []);
   const redirectUri = useMemo(() => getExtensionRedirectUri(), []);
@@ -52,7 +66,10 @@ export default function PopupApp() {
 
   const cloudSync = useMemo(() => {
     return syncServerUrl
-      ? new HttpCloudSyncClient(syncServerUrl, () => readCloudSession()?.token ?? null)
+      ? new HttpCloudSyncClient(
+          syncServerUrl,
+          () => readCloudSession()?.token ?? null,
+        )
       : null;
   }, []);
 
@@ -63,72 +80,45 @@ export default function PopupApp() {
 
     return lists.flatMap((list) =>
       list.items
-        .filter((item) => item.placeKey === activeTab.placeKey || extractPlaceKeyFromHref(item.href) === activeTab.placeKey)
+        .filter(
+          (item) =>
+            item.placeKey === activeTab.placeKey ||
+            extractPlaceKeyFromHref(item.href) === activeTab.placeKey,
+        )
         .map((item) => ({
           list,
-          item
-        }))
+          item,
+        })),
     );
   }, [activeTab, lists]);
 
-  useEffect(() => {
-    void hydrate();
-    void hydrateActiveTab();
-  }, []);
-
-  useEffect(() => {
-    if (!cloudSession || !cloudSync) {
-      return;
-    }
-
-    setStatus("ready");
-    setMessage("Session is active. Import from Kakao Maps only runs when you click the button.");
-  }, [cloudSession, cloudSync, deviceId]);
-
-  useEffect(() => {
-    if (activeTab.kind !== "place" || !cloudSession || !cloudSync) {
-      return;
-    }
-
-    void refreshPlaceViewFromServer(cloudSync);
-  }, [activeTab.kind, activeTab.placeKey, cloudSession, cloudSync]);
-
-  useEffect(() => {
-    if (placeMemberships.length === 0) {
-      return;
-    }
-
-    setLocalNoteDrafts((current) => {
-      const next = { ...current };
-      for (const membership of placeMemberships) {
-        next[getMembershipKey(membership.list.id, membership.item.id)] = membership.item.localNote ?? "";
-      }
-      return next;
-    });
-  }, [placeMemberships]);
-
-  async function hydrate() {
+  const hydrate = useCallback(async () => {
     const [savedLists, syncedAt] = await Promise.all([
       repository.loadLists(),
-      repository.getLastSyncedAt()
+      repository.getLastSyncedAt(),
     ]);
     setLists(filterVisibleLists(savedLists));
     setLastSyncedAt(syncedAt);
     setDebugLines((current) =>
-      current.length > 0 ? current : [`hydrated-local-lists:${savedLists.length}`, `hydrated-last-sync:${syncedAt ?? "never"}`]
+      current.length > 0
+        ? current
+        : [
+            `hydrated-local-lists:${savedLists.length}`,
+            `hydrated-last-sync:${syncedAt ?? "never"}`,
+          ],
     );
-  }
+  }, []);
 
-  async function hydrateActiveTab() {
+  const hydrateActiveTab = useCallback(async () => {
     const [tab] = await chrome.tabs.query({
       active: true,
-      currentWindow: true
+      currentWindow: true,
     });
 
     if (!tab) {
       setActiveTab({
         kind: "default",
-        tabId: null
+        tabId: null,
       });
       return;
     }
@@ -149,7 +139,7 @@ export default function PopupApp() {
       }
       return dedupeLines(next);
     });
-  }
+  }, []);
 
   async function signIn() {
     if (!cloudSync) {
@@ -166,7 +156,9 @@ export default function PopupApp() {
 
     if (!redirectUri) {
       setStatus("error");
-      setMessage("Chrome identity is unavailable, so the extension redirect URI could not be resolved.");
+      setMessage(
+        "Chrome identity is unavailable, so the extension redirect URI could not be resolved.",
+      );
       return;
     }
 
@@ -178,7 +170,7 @@ export default function PopupApp() {
       clientId: kakaoClientId,
       redirectUri,
       scope: kakaoScope,
-      state: "kakao-lists-extension"
+      state: "kakao-lists-extension",
     });
 
     setBusyAction("sign-in");
@@ -189,7 +181,7 @@ export default function PopupApp() {
     try {
       const callbackUrl = await chrome.identity.launchWebAuthFlow({
         interactive: true,
-        url: authUrl
+        url: authUrl,
       });
 
       if (!callbackUrl) {
@@ -198,24 +190,28 @@ export default function PopupApp() {
 
       const code = new URL(callbackUrl).searchParams.get("code");
       if (!code) {
-        throw new Error("No Kakao authorization code was returned to the extension.");
+        throw new Error(
+          "No Kakao authorization code was returned to the extension.",
+        );
       }
 
       const session = await cloudSync.exchangeKakaoCode({
         code,
-        redirectUri
+        redirectUri,
       });
 
       writeCloudSession(session);
       setCloudSession(session);
       setStatus("ready");
-      setMessage(`Signed in as Kakao user ${session.user.id}. Click import when you want to fetch lists from Kakao Maps.`);
+      setMessage(
+        `Signed in as Kakao user ${session.user.id}. Click import when you want to fetch lists from Kakao Maps.`,
+      );
     } catch (error) {
       setStatus("error");
       setMessage(
         error instanceof Error
           ? `${error.message} Register this redirect URI in Kakao Developers: ${redirectUri}`
-          : `Extension sign-in failed. Register this redirect URI in Kakao Developers: ${redirectUri}`
+          : `Extension sign-in failed. Register this redirect URI in Kakao Developers: ${redirectUri}`,
       );
     } finally {
       setBusyAction(null);
@@ -243,16 +239,24 @@ export default function PopupApp() {
       writeCloudSession(session);
       setCloudSession(session);
       setStatus("ready");
-      setMessage(`Signed in with mock auth as ${session.user.id}. Click import when you want to fetch lists from Kakao Maps.`);
+      setMessage(
+        `Signed in with mock auth as ${session.user.id}. Click import when you want to fetch lists from Kakao Maps.`,
+      );
     } catch (error) {
       setStatus("error");
-      setMessage(error instanceof Error ? error.message : "Mock sign-in failed.");
+      setMessage(
+        error instanceof Error ? error.message : "Mock sign-in failed.",
+      );
     } finally {
       setBusyAction(null);
     }
   }
 
-  async function importFromKakaoMaps(activeCloudSync = cloudSync, activeCloudSession = cloudSession, activeDeviceId = deviceId) {
+  async function importFromKakaoMaps(
+    activeCloudSync = cloudSync,
+    activeCloudSession = cloudSession,
+    activeDeviceId = deviceId,
+  ) {
     if (!activeCloudSync || !activeCloudSession) {
       return;
     }
@@ -273,20 +277,20 @@ export default function PopupApp() {
         const pushedSnapshot = sanitizeSnapshot(extracted.snapshot);
         const result = await activeCloudSync.pushSnapshot({
           deviceId: activeDeviceId,
-          snapshot: pushedSnapshot
+          snapshot: pushedSnapshot,
         });
 
         const storedSnapshot = sanitizeSnapshot(result.snapshot);
         await repository.saveSnapshot(storedSnapshot);
-      setLists(storedSnapshot.lists);
-      setLastSyncedAt(storedSnapshot.syncedAt);
-      setServerVersion(result.serverVersion);
-      writeLastKnownServerVersion(result.serverVersion);
-      setStatus("ready");
+        setLists(storedSnapshot.lists);
+        setLastSyncedAt(storedSnapshot.syncedAt);
+        setServerVersion(result.serverVersion);
+        writeLastKnownServerVersion(result.serverVersion);
+        setStatus("ready");
         setMessage(
           `Imported ${extracted.placeCount} places across ${extracted.folderCount} lists from ${
             extracted.tabTitle ?? "Kakao Maps"
-          } and synced version ${result.serverVersion}.`
+          } and synced version ${result.serverVersion}.`,
         );
         return;
       }
@@ -298,7 +302,7 @@ export default function PopupApp() {
       setStatus("error");
       setDebugLines((current) => [
         ...current,
-        `error:${error instanceof Error ? error.message : "Import failed."}`
+        `error:${error instanceof Error ? error.message : "Import failed."}`,
       ]);
       setMessage(error instanceof Error ? error.message : "Import failed.");
     } finally {
@@ -341,62 +345,68 @@ export default function PopupApp() {
       setDebugLines((current) => [
         ...current,
         `server-version:${result.serverVersion ?? "none"}`,
-        `server-lists:${snapshot.lists.length}`
+        `server-lists:${snapshot.lists.length}`,
       ]);
-      setMessage(`Loaded server snapshot version ${result.serverVersion ?? "unknown"}.`);
+      setMessage(
+        `Loaded server snapshot version ${result.serverVersion ?? "unknown"}.`,
+      );
     } catch (error) {
       setStatus("error");
-      setDebugLines((current) => [...current, `error:${error instanceof Error ? error.message : "Server pull failed."}`]);
-      setMessage(error instanceof Error ? error.message : "Server pull failed.");
+      setDebugLines((current) => [
+        ...current,
+        `error:${error instanceof Error ? error.message : "Server pull failed."}`,
+      ]);
+      setMessage(
+        error instanceof Error ? error.message : "Server pull failed.",
+      );
     } finally {
       setBusyAction(null);
     }
   }
 
-  async function refreshPlaceViewFromServer(activeCloudSync: HttpCloudSyncClient) {
-    setDebugLines((current) =>
-      dedupeLines([
-        ...current,
-        "phase:background-server-refresh"
-      ])
-    );
+  const refreshPlaceViewFromServer = useCallback(
+    async (activeCloudSync: HttpCloudSyncClient) => {
+      setDebugLines((current) =>
+        dedupeLines([...current, "phase:background-server-refresh"]),
+      );
 
-    try {
-      const result = await fetchServerSnapshot(activeCloudSync);
-      if (!result.snapshot) {
+      try {
+        const result = await fetchServerSnapshot(activeCloudSync);
+        if (!result.snapshot) {
+          setDebugLines((current) =>
+            dedupeLines([...current, "background-refresh:no-server-snapshot"]),
+          );
+          return;
+        }
+
+        const snapshot = sanitizeSnapshot(result.snapshot);
+        await repository.saveSnapshot(snapshot);
+        setLists(snapshot.lists);
+        setLastSyncedAt(snapshot.syncedAt);
+        setServerVersion(result.serverVersion);
+        writeLastKnownServerVersion(result.serverVersion);
+        setStatus("ready");
+        setMessage(
+          "Rendered local snapshot first, then refreshed this place view from the server.",
+        );
         setDebugLines((current) =>
           dedupeLines([
             ...current,
-            "background-refresh:no-server-snapshot"
-          ])
+            `background-refresh:server-version:${result.serverVersion ?? "none"}`,
+            `background-refresh:server-lists:${snapshot.lists.length}`,
+          ]),
         );
-        return;
+      } catch (error) {
+        setDebugLines((current) =>
+          dedupeLines([
+            ...current,
+            `background-refresh-error:${error instanceof Error ? error.message : "Server refresh failed."}`,
+          ]),
+        );
       }
-
-      const snapshot = sanitizeSnapshot(result.snapshot);
-      await repository.saveSnapshot(snapshot);
-      setLists(snapshot.lists);
-      setLastSyncedAt(snapshot.syncedAt);
-      setServerVersion(result.serverVersion);
-      writeLastKnownServerVersion(result.serverVersion);
-      setStatus("ready");
-      setMessage("Rendered local snapshot first, then refreshed this place view from the server.");
-      setDebugLines((current) =>
-        dedupeLines([
-          ...current,
-          `background-refresh:server-version:${result.serverVersion ?? "none"}`,
-          `background-refresh:server-lists:${snapshot.lists.length}`
-        ])
-      );
-    } catch (error) {
-      setDebugLines((current) =>
-        dedupeLines([
-          ...current,
-          `background-refresh-error:${error instanceof Error ? error.message : "Server refresh failed."}`
-        ])
-      );
-    }
-  }
+    },
+    [],
+  );
 
   async function openListInPwa(listId: string, itemId: string) {
     const url = buildPwaListUrl(listId, itemId);
@@ -406,7 +416,7 @@ export default function PopupApp() {
 
     await chrome.tabs.create({
       url,
-      active: true
+      active: true,
     });
   }
 
@@ -418,7 +428,7 @@ export default function PopupApp() {
 
     await chrome.tabs.create({
       url,
-      active: true
+      active: true,
     });
   }
 
@@ -443,7 +453,7 @@ export default function PopupApp() {
       const result = await cloudSync.updateLocalNote({
         listId,
         itemId,
-        localNote
+        localNote,
       });
       const snapshot = sanitizeSnapshot(result.snapshot);
       await repository.saveSnapshot(snapshot);
@@ -454,19 +464,18 @@ export default function PopupApp() {
       setStatus("ready");
       setMessage("Local note saved locally and on the sync server.");
       setDebugLines((current) =>
-        dedupeLines([
-          ...current,
-          `local-note-saved:${listId}:${itemId}`
-        ])
+        dedupeLines([...current, `local-note-saved:${listId}:${itemId}`]),
       );
     } catch (error) {
       setStatus("error");
-      setMessage(error instanceof Error ? error.message : "Local note save failed.");
+      setMessage(
+        error instanceof Error ? error.message : "Local note save failed.",
+      );
       setDebugLines((current) =>
         dedupeLines([
           ...current,
-          `local-note-save-error:${error instanceof Error ? error.message : "Local note save failed."}`
-        ])
+          `local-note-save-error:${error instanceof Error ? error.message : "Local note save failed."}`,
+        ]),
       );
     } finally {
       setBusyAction(null);
@@ -499,7 +508,9 @@ export default function PopupApp() {
     setLastSyncedAt(null);
     setServerVersion(null);
     setStatus("ready");
-    setMessage("All local extension snapshot data was cleared. Your server copy was not changed.");
+    setMessage(
+      "All local extension snapshot data was cleared. Your server copy was not changed.",
+    );
     setDebugLines(["local-data:cleared"]);
     setBusyAction(null);
   }
@@ -508,6 +519,45 @@ export default function PopupApp() {
     setThemePreference(nextPreference);
     writeThemePreference(nextPreference);
   }
+
+  useEffect(() => {
+    void hydrate();
+    void hydrateActiveTab();
+  }, [hydrate, hydrateActiveTab]);
+
+  useEffect(() => {
+    if (!cloudSession || !cloudSync) {
+      return;
+    }
+
+    setStatus("ready");
+    setMessage(
+      "Session is active. Import from Kakao Maps only runs when you click the button.",
+    );
+  }, [cloudSession, cloudSync]);
+
+  useEffect(() => {
+    if (activeTab.kind !== "place" || !cloudSession || !cloudSync) {
+      return;
+    }
+
+    void refreshPlaceViewFromServer(cloudSync);
+  }, [activeTab.kind, cloudSession, cloudSync, refreshPlaceViewFromServer]);
+
+  useEffect(() => {
+    if (placeMemberships.length === 0) {
+      return;
+    }
+
+    setLocalNoteDrafts((current) => {
+      const next = { ...current };
+      for (const membership of placeMemberships) {
+        next[getMembershipKey(membership.list.id, membership.item.id)] =
+          membership.item.localNote ?? "";
+      }
+      return next;
+    });
+  }, [placeMemberships]);
 
   function openSettings() {
     setView("settings");
@@ -535,17 +585,35 @@ export default function PopupApp() {
         <header className="popup-header">
           <div className="popup-header-left">
             {view === "settings" ? (
-              <button className="icon-button" aria-label="Back to main popup" disabled={isBusy} onClick={closeSettings} title="Back to main popup" type="button">
+              <button
+                className="icon-button"
+                aria-label="Back to main popup"
+                disabled={isBusy}
+                onClick={closeSettings}
+                title="Back to main popup"
+                type="button"
+              >
                 <span aria-hidden="true">←</span>
               </button>
             ) : null}
           </div>
           <div>
-            <div className="badge" aria-hidden="true">&nbsp;</div>
+            <div className="badge" aria-hidden="true">
+              &nbsp;
+            </div>
           </div>
           <div className="popup-header-actions">
-            {view === "settings" ? <span className="header-spacer" aria-hidden="true" /> : (
-              <button className="icon-button" aria-label="Options" disabled={isBusy} onClick={openSettings} title="Options" type="button">
+            {view === "settings" ? (
+              <span className="header-spacer" aria-hidden="true" />
+            ) : (
+              <button
+                className="icon-button"
+                aria-label="Options"
+                disabled={isBusy}
+                onClick={openSettings}
+                title="Options"
+                type="button"
+              >
                 <span aria-hidden="true">⚙</span>
               </button>
             )}
@@ -556,7 +624,10 @@ export default function PopupApp() {
             <section className="mini-panel settings-panel">
               <div className="options-panel-section">
                 <div className="section-label">Appearance</div>
-                <div className="segmented-control" role="group" aria-label="Theme preference">
+                <fieldset
+                  className="segmented-control"
+                  aria-label="Theme preference"
+                >
                   {(["system", "light", "dark"] as const).map((option) => (
                     <button
                       aria-pressed={themePreference === option}
@@ -568,31 +639,45 @@ export default function PopupApp() {
                       {option}
                     </button>
                   ))}
-                </div>
+                </fieldset>
               </div>
             </section>
-            <section className="mini-panel options-debug-card">
-              <div className="section-label">Debug</div>
-              <ul className="options-list">
-                <li>
-                  Register this exact Kakao redirect URI in Kakao Developers:
-                  <code>{redirectUri || "Unavailable"}</code>
-                </li>
-                <li>
-                  If the URI keeps changing after reinstalling the unpacked extension, set
-                  <code>EXTENSION_PUBLIC_KEY</code> before building so the extension id stays fixed.
-                </li>
-              </ul>
-            </section>
+            {debugMode ? (
+              <section className="mini-panel options-debug-card">
+                <div className="section-label">Debug</div>
+                <ul className="options-list">
+                  <li>
+                    Register this exact Kakao redirect URI in Kakao Developers:
+                    <code>{redirectUri || "Unavailable"}</code>
+                  </li>
+                  <li>
+                    If the URI keeps changing after reinstalling the unpacked
+                    extension, set
+                    <code>EXTENSION_PUBLIC_KEY</code> before building so the
+                    extension id stays fixed.
+                  </li>
+                </ul>
+              </section>
+            ) : null}
           </>
         ) : (
           <>
             <div className="actions actions-stacked">
-              <button className="button primary" disabled={isBusy} onClick={signIn} type="button">
+              <button
+                className="button primary"
+                disabled={isBusy}
+                onClick={signIn}
+                type="button"
+              >
                 Sign in with Kakao
               </button>
               {mockAuthEnabled ? (
-                <button className="button" disabled={isBusy} onClick={signInWithMock} type="button">
+                <button
+                  className="button"
+                  disabled={isBusy}
+                  onClick={signInWithMock}
+                  type="button"
+                >
                   Use Mock Sign In
                 </button>
               ) : null}
@@ -601,7 +686,9 @@ export default function PopupApp() {
             {status === "error" ? (
               <section className="mini-panel">
                 <h2>Sign-In Error</h2>
-                <p aria-live="polite" role="status">{message}</p>
+                <p aria-live="polite" role="status">
+                  {message}
+                </p>
               </section>
             ) : null}
           </>
@@ -615,17 +702,35 @@ export default function PopupApp() {
       <header className="popup-header">
         <div className="popup-header-left">
           {view === "settings" ? (
-            <button className="icon-button" aria-label="Back to main popup" disabled={isBusy} onClick={closeSettings} title="Back to main popup" type="button">
+            <button
+              className="icon-button"
+              aria-label="Back to main popup"
+              disabled={isBusy}
+              onClick={closeSettings}
+              title="Back to main popup"
+              type="button"
+            >
               <span aria-hidden="true">←</span>
             </button>
           ) : null}
         </div>
         <div>
-          <div className="badge" aria-hidden="true">&nbsp;</div>
+          <div className="badge" aria-hidden="true">
+            &nbsp;
+          </div>
         </div>
         <div className="popup-header-actions">
-          {view === "settings" ? <span className="header-spacer" aria-hidden="true" /> : (
-            <button className="icon-button" aria-label="Options" disabled={isBusy} onClick={openSettings} title="Options" type="button">
+          {view === "settings" ? (
+            <span className="header-spacer" aria-hidden="true" />
+          ) : (
+            <button
+              className="icon-button"
+              aria-label="Options"
+              disabled={isBusy}
+              onClick={openSettings}
+              title="Options"
+              type="button"
+            >
               <span aria-hidden="true">⚙</span>
             </button>
           )}
@@ -636,7 +741,10 @@ export default function PopupApp() {
           <section className="mini-panel settings-panel">
             <section className="options-panel-section">
               <div className="section-label">Appearance</div>
-              <div className="segmented-control" role="group" aria-label="Theme preference">
+              <fieldset
+                className="segmented-control"
+                aria-label="Theme preference"
+              >
                 {(["system", "light", "dark"] as const).map((option) => (
                   <button
                     aria-pressed={themePreference === option}
@@ -648,14 +756,24 @@ export default function PopupApp() {
                     {option}
                   </button>
                 ))}
-              </div>
+              </fieldset>
             </section>
 
             <div className="actions actions-stacked">
-              <button className="button primary" disabled={isBusy} onClick={() => void pullFromServer()} type="button">
+              <button
+                className="button primary"
+                disabled={isBusy}
+                onClick={() => void pullFromServer()}
+                type="button"
+              >
                 Pull Server Data
               </button>
-              <button className="button danger" disabled={isBusy} onClick={() => void clearLocalData()} type="button">
+              <button
+                className="button danger"
+                disabled={isBusy}
+                onClick={() => void clearLocalData()}
+                type="button"
+              >
                 Clear All Local Data
               </button>
             </div>
@@ -693,145 +811,183 @@ export default function PopupApp() {
           <section className="mini-panel options-signout-card">
             <div className="section-label">Account</div>
             <div className="actions actions-stacked settings-actions">
-              <button className="button danger" disabled={isBusy} onClick={clearSession} type="button">
+              <button
+                className="button danger"
+                disabled={isBusy}
+                onClick={clearSession}
+                type="button"
+              >
                 Sign Out
               </button>
             </div>
           </section>
-          <section className="mini-panel options-debug-card">
-            <div className="section-label">Debug</div>
-            <ul className="options-list">
-              <li>The extension popup signs in through `chrome.identity.launchWebAuthFlow`.</li>
-              <li>
-                Register this exact Kakao redirect URI in Kakao Developers:
-                <code>{redirectUri}</code>
-              </li>
-              <li>
-                If the URI keeps changing after reinstalling the unpacked extension, set
-                <code>EXTENSION_PUBLIC_KEY</code> before building so the extension id stays fixed.
-              </li>
-              <li>Clearing local data removes the extension cache and local device id only. It does not delete the server snapshot.</li>
-            </ul>
-          </section>
+          {debugMode ? (
+            <section className="mini-panel options-debug-card">
+              <div className="section-label">Debug</div>
+              <ul className="options-list">
+                <li>
+                  The extension popup signs in through
+                  `chrome.identity.launchWebAuthFlow`.
+                </li>
+                <li>
+                  Register this exact Kakao redirect URI in Kakao Developers:
+                  <code>{redirectUri}</code>
+                </li>
+                <li>
+                  If the URI keeps changing after reinstalling the unpacked
+                  extension, set
+                  <code>EXTENSION_PUBLIC_KEY</code> before building so the
+                  extension id stays fixed.
+                </li>
+                <li>
+                  Clearing local data removes the extension cache and local
+                  device id only. It does not delete the server snapshot.
+                </li>
+              </ul>
+            </section>
+          ) : null}
         </>
       ) : activeTab.kind === "place" ? (
-        <>
-          <section className="mini-panel">
-            <div className="section-head-inline">
-              <h2>Saved In Lists</h2>
-              <button
-                className="stored-list-action"
-                disabled={isBusy}
-                onClick={() => void pullFromServer()}
-                aria-label="Refresh saved lists from the server"
-                title="Refresh saved lists from the server"
-                type="button"
-              >
-                <span aria-hidden="true">↻</span>
-              </button>
-            </div>
-            {placeMemberships.length === 0 ? (
-              <p>That place is not present in the currently stored snapshot. Pull the server copy or import again.</p>
-            ) : (
-              <ul className="match-list">
-                {placeMemberships.map(({ list, item }) => (
-                  <li className="match-card" key={`${list.id}:${item.id}`}>
-                    <div className="match-head">
-                      <button
-                        className="match-title-link"
-                        onClick={() => void openStoredListInPwa(list.id)}
-                        aria-label={`Open ${list.name} in the PWA`}
-                        title={`Open ${list.name} in the PWA`}
-                        type="button"
-                      >
-                        {list.name}
-                      </button>
-                      <span>{list.creatorName ?? "Unknown creator"}</span>
-                    </div>
-                    <p>{item.subtitle ?? "No address summary stored."}</p>
-                    {item.kakaoNote ? (
-                      <div className="note-block">
-                        <label>Kakao note</label>
-                        <div className="kakao-note-body">
-                          <button
-                            aria-label="Copy Kakao note"
-                            className="copy-note-button"
-                            onClick={() => void copyKakaoNote(item.kakaoNote ?? "")}
-                            title="Copy Kakao note"
-                            type="button"
-                          >
-                            <CopyIcon />
-                          </button>
-                          <span>{item.kakaoNote}</span>
-                        </div>
-                      </div>
-                    ) : null}
+        <section className="mini-panel">
+          <div className="section-head-inline">
+            <h2>Saved In Lists</h2>
+            <button
+              className="stored-list-action"
+              disabled={isBusy}
+              onClick={() => void pullFromServer()}
+              aria-label="Refresh saved lists from the server"
+              title="Refresh saved lists from the server"
+              type="button"
+            >
+              <span aria-hidden="true">↻</span>
+            </button>
+          </div>
+          {placeMemberships.length === 0 ? (
+            <p>
+              That place is not present in the currently stored snapshot. Pull
+              the server copy or import again.
+            </p>
+          ) : (
+            <ul className="match-list">
+              {placeMemberships.map(({ list, item }) => (
+                <li className="match-card" key={`${list.id}:${item.id}`}>
+                  <div className="match-head">
+                    <button
+                      className="match-title-link"
+                      onClick={() => void openStoredListInPwa(list.id)}
+                      aria-label={`Open ${list.name} in the PWA`}
+                      title={`Open ${list.name} in the PWA`}
+                      type="button"
+                    >
+                      {list.name}
+                    </button>
+                    <span>{list.creatorName ?? "Unknown creator"}</span>
+                  </div>
+                  <p>{item.subtitle ?? "No address summary stored."}</p>
+                  {item.kakaoNote ? (
                     <div className="note-block">
-                      <label>Local note</label>
-                      <input
-                        className="note-input"
-                        maxLength={500}
-                        type="text"
-                        value={localNoteDrafts[getMembershipKey(list.id, item.id)] ?? ""}
-                        onChange={(event) =>
-                          setLocalNoteDrafts((current) => ({
-                            ...current,
-                            [getMembershipKey(list.id, item.id)]: event.target.value
-                          }))
-                        }
-                        placeholder="Add your own note"
-                      />
+                      <div className="note-label">Kakao note</div>
+                      <div className="kakao-note-body">
+                        <button
+                          aria-label="Copy Kakao note"
+                          className="copy-note-button"
+                          onClick={() =>
+                            void copyKakaoNote(item.kakaoNote ?? "")
+                          }
+                          title="Copy Kakao note"
+                          type="button"
+                        >
+                          <CopyIcon />
+                        </button>
+                        <span>{item.kakaoNote}</span>
+                      </div>
                     </div>
-                    <div className="match-actions">
-                      <button
-                        aria-label="Save local note"
-                        className="icon-button match-action-icon"
-                        disabled={isBusy}
-                        onClick={() => void savePlaceLocalNote(list.id, item.id)}
-                        title="Save local note"
-                        type="button"
-                      >
-                        <span aria-hidden="true">💾</span>
-                      </button>
-                      <button
-                        className="stored-list-action match-open-action"
-                        onClick={() => void openListInPwa(list.id, item.id)}
-                        aria-label={`Open ${list.name} in the PWA`}
-                        title={`Open ${list.name} in the PWA`}
-                        type="button"
-                      >
-                        <span aria-hidden="true">→</span>
-                      </button>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-        </>
+                  ) : null}
+                  <div className="note-block">
+                    <label
+                      className="note-label"
+                      htmlFor={`local-note-${list.id}-${item.id}`}
+                    >
+                      Local note
+                    </label>
+                    <input
+                      className="note-input"
+                      id={`local-note-${list.id}-${item.id}`}
+                      maxLength={500}
+                      type="text"
+                      value={
+                        localNoteDrafts[getMembershipKey(list.id, item.id)] ??
+                        ""
+                      }
+                      onChange={(event) =>
+                        setLocalNoteDrafts((current) => ({
+                          ...current,
+                          [getMembershipKey(list.id, item.id)]:
+                            event.target.value,
+                        }))
+                      }
+                      placeholder="Add your own note"
+                    />
+                  </div>
+                  <div className="match-actions">
+                    <button
+                      aria-label="Save local note"
+                      className="icon-button match-action-icon"
+                      disabled={isBusy}
+                      onClick={() => void savePlaceLocalNote(list.id, item.id)}
+                      title="Save local note"
+                      type="button"
+                    >
+                      <span aria-hidden="true">💾</span>
+                    </button>
+                    <button
+                      className="stored-list-action match-open-action"
+                      onClick={() => void openListInPwa(list.id, item.id)}
+                      aria-label={`Open ${list.name} in the PWA`}
+                      title={`Open ${list.name} in the PWA`}
+                      type="button"
+                    >
+                      <span aria-hidden="true">→</span>
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
       ) : (
         <>
           <div className="actions">
-            <button className="button primary" disabled={isBusy} onClick={() => void importFromKakaoMaps()} type="button">
+            <button
+              className="button primary"
+              disabled={isBusy}
+              onClick={() => void importFromKakaoMaps()}
+              type="button"
+            >
               Import from Kakao Maps
             </button>
           </div>
           <p className="copy">
-            The extension is the only place that creates fresh snapshots from Kakao Maps. Imports only
-            run when you click the button.
+            The extension is the only place that creates fresh snapshots from
+            Kakao Maps. Imports only run when you click the button.
           </p>
 
           <section className="mini-panel">
             <h2>Stored Lists</h2>
             {lists.length === 0 ? (
-              <p>No saved lists stored yet. Open Kakao Maps in a signed-in tab, then import again.</p>
+              <p>
+                No saved lists stored yet. Open Kakao Maps in a signed-in tab,
+                then import again.
+              </p>
             ) : (
               <ul className="compact-list stored-list">
                 {lists.map((list) => (
                   <li key={list.id}>
                     <div className="stored-list-copy">
                       <strong>{list.name}</strong>
-                      <span>{formatCountLabel(list.itemCount, "item", "items")}</span>
+                      <span>
+                        {formatCountLabel(list.itemCount, "item", "items")}
+                      </span>
                     </div>
                     <button
                       className="stored-list-action"
@@ -868,7 +1024,9 @@ async function fetchServerSnapshot(cloudSync: HttpCloudSyncClient) {
   return result;
 }
 
-async function resolveActiveTabContext(tab: chrome.tabs.Tab): Promise<ActiveTabContext> {
+async function resolveActiveTabContext(
+  tab: chrome.tabs.Tab,
+): Promise<ActiveTabContext> {
   const url = tab.url ?? "";
   const placeKey = extractPlaceKeyFromUrl(url);
 
@@ -879,7 +1037,7 @@ async function resolveActiveTabContext(tab: chrome.tabs.Tab): Promise<ActiveTabC
       title: tab.title ?? undefined,
       url,
       placeKey,
-      source: "url"
+      source: "url",
     };
   }
 
@@ -892,7 +1050,7 @@ async function resolveActiveTabContext(tab: chrome.tabs.Tab): Promise<ActiveTabC
         title: modalPlace.title ?? tab.title ?? undefined,
         url: modalPlace.href ?? url,
         placeKey: modalPlace.placeKey,
-        source: "modal"
+        source: "modal",
       };
     }
   }
@@ -901,7 +1059,7 @@ async function resolveActiveTabContext(tab: chrome.tabs.Tab): Promise<ActiveTabC
     kind: "default",
     tabId: tab.id ?? null,
     title: tab.title ?? undefined,
-    url
+    url,
   };
 }
 
@@ -931,11 +1089,13 @@ function isKakaoMapsPageUrl(url: string): boolean {
   }
 }
 
-async function readOpenPlaceModalContext(tabId: number): Promise<OpenPlaceModalContext | null> {
+async function readOpenPlaceModalContext(
+  tabId: number,
+): Promise<OpenPlaceModalContext | null> {
   try {
     const [{ result }] = await chrome.scripting.executeScript({
       target: { tabId },
-      func: findOpenPlaceModalInPage
+      func: findOpenPlaceModalInPage,
     });
 
     if (!result || typeof result !== "object") {
@@ -951,7 +1111,7 @@ async function readOpenPlaceModalContext(tabId: number): Promise<OpenPlaceModalC
     return {
       href: candidate.href,
       placeKey,
-      title: candidate.title
+      title: candidate.title,
     };
   } catch {
     return null;
@@ -962,7 +1122,7 @@ function findOpenPlaceModalInPage(): OpenPlaceModalContext | null {
   const selectors = [
     '#view\\.mapContainer div.head_tooltip > strong > a.name[href*="place.map.kakao.com/"]',
     '#view\\.mapContainer div.head_tooltip a.name[href*="place.map.kakao.com/"]',
-    '#view\\.mapContainer a.name[data-id="name"][href*="place.map.kakao.com/"]'
+    '#view\\.mapContainer a.name[data-id="name"][href*="place.map.kakao.com/"]',
   ];
 
   const isVisible = (element: Element | null): element is HTMLElement => {
@@ -972,7 +1132,12 @@ function findOpenPlaceModalInPage(): OpenPlaceModalContext | null {
 
     const style = window.getComputedStyle(element);
     const rect = element.getBoundingClientRect();
-    return style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0;
+    return (
+      style.display !== "none" &&
+      style.visibility !== "hidden" &&
+      rect.width > 0 &&
+      rect.height > 0
+    );
   };
 
   for (const selector of selectors) {
@@ -983,12 +1148,14 @@ function findOpenPlaceModalInPage(): OpenPlaceModalContext | null {
 
     return {
       href: anchor.href,
-      title: anchor.textContent?.trim() || anchor.title?.trim() || undefined
+      title: anchor.textContent?.trim() || anchor.title?.trim() || undefined,
     };
   }
 
   const fallbackAnchors = Array.from(
-    document.querySelectorAll<HTMLAnchorElement>('#view\\.mapContainer a[href*="place.map.kakao.com/"]')
+    document.querySelectorAll<HTMLAnchorElement>(
+      '#view\\.mapContainer a[href*="place.map.kakao.com/"]',
+    ),
   );
 
   for (const anchor of fallbackAnchors) {
@@ -998,7 +1165,7 @@ function findOpenPlaceModalInPage(): OpenPlaceModalContext | null {
 
     return {
       href: anchor.href,
-      title: anchor.textContent?.trim() || anchor.title?.trim() || undefined
+      title: anchor.textContent?.trim() || anchor.title?.trim() || undefined,
     };
   }
 
@@ -1021,17 +1188,23 @@ function buildPwaListUrl(listId: string, itemId?: string) {
       params.set("item", itemId);
     }
     const query = params.toString();
-    base.hash = query ? `list/${encodeURIComponent(listId)}?${query}` : `list/${encodeURIComponent(listId)}`;
+    base.hash = query
+      ? `list/${encodeURIComponent(listId)}?${query}`
+      : `list/${encodeURIComponent(listId)}`;
     return base.toString();
   } catch {
     return "";
   }
 }
 
-function sanitizeSnapshot(snapshot: { syncedAt: string; source: string; lists: FavoriteList[] }) {
+function sanitizeSnapshot(snapshot: {
+  syncedAt: string;
+  source: string;
+  lists: FavoriteList[];
+}) {
   return {
     ...snapshot,
-    lists: filterVisibleLists(snapshot.lists)
+    lists: filterVisibleLists(snapshot.lists),
   };
 }
 
@@ -1050,7 +1223,9 @@ function clearLocalExtensionData() {
 }
 
 function readCloudSession(): CloudSession | null {
-  const raw = window.localStorage.getItem("kakao-lists:extension-cloud-session");
+  const raw = window.localStorage.getItem(
+    "kakao-lists:extension-cloud-session",
+  );
   if (!raw) {
     return null;
   }
@@ -1075,7 +1250,10 @@ function readCloudSession(): CloudSession | null {
 }
 
 function writeCloudSession(session: CloudSession) {
-  window.localStorage.setItem("kakao-lists:extension-cloud-session", JSON.stringify(session));
+  window.localStorage.setItem(
+    "kakao-lists:extension-cloud-session",
+    JSON.stringify(session),
+  );
 }
 
 function clearCloudSession() {
@@ -1088,11 +1266,16 @@ function writeLastKnownServerVersion(serverVersion: number | null) {
     return;
   }
 
-  window.localStorage.setItem("kakao-lists:extension-server-version", String(serverVersion));
+  window.localStorage.setItem(
+    "kakao-lists:extension-server-version",
+    String(serverVersion),
+  );
 }
 
 function getOrCreateDeviceId() {
-  const existing = window.localStorage.getItem("kakao-lists:extension-device-id");
+  const existing = window.localStorage.getItem(
+    "kakao-lists:extension-device-id",
+  );
   if (existing) {
     return existing;
   }
@@ -1122,7 +1305,7 @@ function formatDate(value: string | null) {
 
   return new Intl.DateTimeFormat(getUserLocale(), {
     dateStyle: "medium",
-    timeStyle: "short"
+    timeStyle: "short",
   }).format(date);
 }
 
@@ -1138,8 +1321,20 @@ function getUserLocale() {
 function CopyIcon() {
   return (
     <svg aria-hidden="true" fill="none" viewBox="0 0 24 24">
-      <rect height="12" rx="2" stroke="currentColor" strokeWidth="1.7" width="11" x="9" y="8" />
-      <path d="M15 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3" stroke="currentColor" strokeWidth="1.7" />
+      <rect
+        height="12"
+        rx="2"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        width="11"
+        x="9"
+        y="8"
+      />
+      <path
+        d="M15 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"
+        stroke="currentColor"
+        strokeWidth="1.7"
+      />
     </svg>
   );
 }

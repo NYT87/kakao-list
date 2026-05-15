@@ -1,16 +1,27 @@
 {
-  "name": "kakao-lists",
+  "name": "@nyt87/kakao-lists",
   "private": true,
   "version": "0.1.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/NYT87/kakao-list.git"
+  },
+  "homepage": "https://github.com/NYT87/kakao-list",
   "packageManager": "pnpm@10.18.3",
   "scripts": {
     "dev:pwa": "pnpm --filter @kakao-lists/pwa dev",
     "dev:extension": "pnpm --filter @kakao-lists/extension dev",
     "dev:server": "pnpm --filter @kakao-lists/server dev",
     "build": "pnpm --filter @kakao-lists/server build && pnpm --filter @kakao-lists/pwa build && pnpm --filter @kakao-lists/extension build",
-    "typecheck": "tsc -b packages/domain packages/kakao packages/storage packages/sync apps/server apps/pwa apps/extension"
+    "typecheck": "tsc -b packages/domain packages/kakao packages/storage packages/sync apps/server apps/pwa apps/extension",
+    "check": "biome check .",
+    "lint": "biome lint .",
+    "lint:fix": "biome lint --write .",
+    "format": "biome format --check .",
+    "format:write": "biome format --write ."
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.4.15",
     "@types/chrome": "^0.1.29",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.3",
