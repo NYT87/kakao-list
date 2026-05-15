@@ -39,6 +39,11 @@ const app: express.Express = express();
 app.use(cors());
 app.use(express.json({ limit: "1mb" }));
 app.use((request, response, next) => {
+  if (!shouldLogRequest(request.originalUrl)) {
+    next();
+    return;
+  }
+
   const startedAt = performance.now();
 
   response.on("finish", () => {
@@ -72,6 +77,10 @@ interface KakaoTokenRecord {
   refreshToken: string | null;
   scope: string | null;
   updatedAt: string;
+}
+
+function shouldLogRequest(url: string) {
+  return url === "/health" || url.startsWith("/api");
 }
 
 interface AuthenticatedSession {
