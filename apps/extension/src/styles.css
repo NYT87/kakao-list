@@ -76,6 +76,10 @@ body {
   padding-top: 86px;
 }
 
+.options-shell {
+  padding-top: 86px;
+}
+
 .popup-header {
   position: fixed;
   top: 18px;
@@ -107,16 +111,18 @@ body {
   gap: 8px;
 }
 
+.popup-header-left {
+  display: flex;
+  align-items: center;
+  min-width: 34px;
+}
+
 .options-panel,
 .mini-panel {
   padding: 18px;
   background: var(--panel-soft);
   border: 1px solid var(--line);
   border-radius: 16px;
-}
-
-.options-panel {
-  padding-top: 84px;
 }
 
 .badge {
@@ -263,8 +269,16 @@ h1 {
   margin-top: 18px;
 }
 
+.options-signout-card {
+  margin-top: 18px;
+}
+
 .popup-debug-card {
   margin-top: 18px;
+}
+
+.settings-actions {
+  margin-bottom: 0;
 }
 
 .section-label {
@@ -434,9 +448,36 @@ h1 {
   gap: 4px;
 }
 
+.kakao-note-body {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+
 .note-block span,
 .mini-panel p {
   overflow-wrap: anywhere;
+}
+
+.copy-note-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  min-height: 24px;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  cursor: pointer;
+}
+
+.copy-note-button svg {
+  width: 18px;
+  height: 18px;
 }
 
 .note-block label {

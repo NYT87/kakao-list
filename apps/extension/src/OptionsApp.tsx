@@ -116,15 +116,15 @@ export default function OptionsApp() {
 
   return (
     <main className="options-shell">
-      <section className="options-panel">
-        <header className="popup-header popup-header-options">
-          <a className="icon-link" aria-label="Back to popup" href="popup.html" title="Back to popup">
-            <span aria-hidden="true">←</span>
-          </a>
-          <div className="badge">Options</div>
-          <span className="header-spacer" aria-hidden="true" />
-        </header>
+      <header className="popup-header popup-header-options">
+        <a className="icon-link" aria-label="Back to popup" href="popup.html" title="Back to popup">
+          <span aria-hidden="true">←</span>
+        </a>
+        <div className="badge">Options</div>
+        <span className="header-spacer" aria-hidden="true" />
+      </header>
 
+      <section className="options-panel">
         <section className="options-panel-section">
           <div className="section-label">Appearance</div>
           <div className="segmented-control" role="group" aria-label="Theme preference">
@@ -180,7 +180,6 @@ export default function OptionsApp() {
             </li>
           </ul>
         </section>
-
       </section>
 
       <section className="mini-panel options-debug-card">

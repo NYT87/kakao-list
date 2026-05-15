@@ -567,23 +567,25 @@ export default function App() {
       </header>
 
       {isSettingsPage ? (
-        <section className="hero">
-          <p className="eyebrow">Kakao Lists / Settings</p>
-          <h1>Settings.</h1>
-          <p className="lede">
-            Manage your local cloud session, pull the latest server snapshot, and review sync status in one place.
-          </p>
+        <section className="settings-page">
+          <article className="panel settings-summary">
+            <p className="eyebrow">Kakao Lists / Settings</p>
+            <div className="settings-summary-header">
+              <div>
+                <h1 className="settings-title">Settings.</h1>
+                <p className="lede settings-lede">
+                  Manage your local cloud session, pull the latest server snapshot, and review sync status in one place.
+                </p>
+              </div>
+              <div aria-live="polite" className={`status-card is-${status} settings-status`} role="status">
+                <span className="status-label">{status}</span>
+                <p>{message}</p>
+              </div>
+            </div>
+          </article>
 
-          <div aria-live="polite" className={`status-card is-${status}`} role="status">
-            <span className="status-label">{status}</span>
-            <p>{message}</p>
-          </div>
-        </section>
-      ) : null}
-
-      {isSettingsPage ? (
-        <section className="grid">
-          <article className="panel">
+          <div className="grid settings-grid">
+            <article className="panel">
             <h2>Appearance</h2>
             <div className="segmented-control" role="group" aria-label="Theme preference">
               {(["system", "light", "dark"] as const).map((option) => (
@@ -668,6 +670,7 @@ export default function App() {
               <li>The PWA is read-only for snapshots; create or refresh them from the extension popup.</li>
             </ul>
           </article>
+          </div>
         </section>
       ) : isListPage ? (
         <>

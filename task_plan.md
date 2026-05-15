@@ -1,52 +1,45 @@
-# Task Plan: Vercel Deployment Readiness
+# Task Plan: Extension Place-Modal Detection
 
 ## Goal
-Make the PWA and sync API deployable on Vercel from this monorepo by adapting the server runtime shape, adding project-level Vercel configuration where it materially helps, and documenting the exact deploy setup and environment variables.
+Make the extension popup detect when the active Kakao Maps tab has an open place modal on `map.kakao.com`, extract that place id from the modal link, and render the same saved-list membership details that already appear on direct `place.map.kakao.com/<id>` pages.
 
 ## Current Phase
-Phase 4
+Phase 3
 
 ## Phases
 ### Phase 1: Requirements & Discovery
-- [x] Read the planning-with-files skill and recover prior unsynced context
-- [x] Inspect the current PWA/server build and runtime shape
-- [x] Identify the minimum repo changes needed for Vercel deployment
+- [x] Read the planning-with-files skill and recover current repo context
+- [x] Inspect the extension popup active-tab detection flow
+- [x] Confirm the existing place-page membership rendering path can be reused
 - **Status:** complete
 
-### Phase 2: Planning & Findings
-- [x] Record the Vercel deployment decisions in `findings.md`
-- [x] Update `progress.md` with the current session scope
+### Phase 2: Implementation
+- [x] Add a Kakao Maps page probe that detects an open place modal and extracts its place id/title/url
+- [x] Feed modal-derived place context into the popup active-tab state
+- [x] Keep direct `place.map.kakao.com/<id>` detection working unchanged
 - **Status:** complete
 
-### Phase 3: Implementation
-- [x] Refactor the server into a reusable app module plus a Vercel handler entrypoint
-- [x] Add server-side Vercel routing/configuration
-- [x] Add any PWA-side Vercel metadata that improves deployment clarity
-- [x] Document exact Vercel setup and required environment variables in `README.md`
-- **Status:** complete
-
-### Phase 4: Testing & Delivery
-- [x] Run server build verification
-- [x] Run repo typecheck verification
-- [x] Summarize the Kakao-backed auth hardening, behavior changes, and any residual caveats
+### Phase 3: Testing & Delivery
+- [x] Build the extension and fix any regressions
+- [x] Summarize the behavior change and any remaining limitations
 - **Status:** complete
 
 ## Key Questions
-1. What is the safest server shape for both local `pnpm dev:server` and Vercel request handling?
-2. Which deployment details belong in code/config versus README instructions?
+1. Can the popup safely read the active `map.kakao.com` DOM on demand without introducing a persistent content script?
+2. Is the modal place anchor stable enough to treat its `href` place id as the same `placeKey` used on direct place pages?
 
 ## Decisions Made
 | Decision | Rationale |
 |----------|-----------|
-| Treat the API and PWA as two separate Vercel projects | It matches the monorepo structure and keeps env vars and domains separate |
-| Refactor the server into a shared Express app plus a Vercel-specific entrypoint | The current `app.listen(...)` startup shape is local-dev oriented and should not be the only server entry |
+| Reuse the existing popup `kind: "place"` UI path for modal matches | The saved-list rendering and note editing are already implemented there |
+| Probe the active tab with `chrome.scripting.executeScript(...)` only when URL-based detection does not already yield a place id | This keeps the direct place-page path simple and adds the modal case only where needed |
 
 ## Errors Encountered
 | Error | Attempt | Resolution |
 |-------|---------|------------|
-| `task_plan.md` was still tracking an older audit task | 1 | Replaced it with a new plan for the Vercel deployment work |
+| None | 0 | N/A |
 
 ## Notes
-- Session catchup reported unsynced context from the prior Vercel deployment discussion, so the planning files needed a fresh pass before implementation.
-- The server is already Postgres-backed, which removes the largest deployment blocker.
-- This plan was later extended to cover backend auth hardening after deployment setup was completed.
+- The current popup only treats `place.map.kakao.com/<id>` URLs as place context.
+- The provided modal markup includes a stable anchor to `https://place.map.kakao.com/<id>`, which should map cleanly onto existing `placeKey` matching.
+- Verification completed with `pnpm --filter @kakao-lists/extension build` and `pnpm --filter @kakao-lists/extension exec tsc --noEmit`.

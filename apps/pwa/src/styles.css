@@ -373,6 +373,42 @@ h3 {
   margin-top: 18px;
 }
 
+.settings-page {
+  margin-top: 20px;
+  display: grid;
+  gap: 18px;
+}
+
+.settings-summary {
+  display: grid;
+  gap: 20px;
+}
+
+.settings-summary-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+  gap: 24px;
+  align-items: start;
+}
+
+.settings-title {
+  max-width: none;
+  margin-bottom: 14px;
+  font-size: clamp(2rem, 4vw, 3.4rem);
+}
+
+.settings-lede {
+  margin-bottom: 0;
+}
+
+.settings-status {
+  width: 100%;
+}
+
+.settings-grid {
+  margin-top: 0;
+}
+
 .panel,
 .empty-state,
 .detail-card {
@@ -840,6 +876,10 @@ h3 {
   }
 
   .grid {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-summary-header {
     grid-template-columns: 1fr;
   }
 

@@ -1,5 +1,44 @@
 # Progress Log
 
+## Session: 2026-05-15 (Extension Place-Modal Detection)
+
+### Phase 1: Requirements & Discovery
+- **Status:** complete
+- Actions taken:
+  - Read the `planning-with-files` skill and checked the existing planning files plus current repo context.
+  - Inspected the extension popup active-tab flow, place-membership rendering, and Kakao Maps extraction utilities.
+  - Confirmed that the popup already renders the right place-details UI for direct `place.map.kakao.com/<id>` pages and only needs an additional source for `placeKey`.
+  - Confirmed the extension manifest already grants `scripting`, `tabs`, and `https://map.kakao.com/*` access needed for a popup-time DOM probe.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/task_plan.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+### Phase 2: Implementation
+- **Status:** complete
+- Actions taken:
+  - Updated `apps/extension/src/PopupApp.tsx` so active-tab resolution is asynchronous.
+  - Preserved the existing direct `place.map.kakao.com/<id>` detection path.
+  - Added a popup-time `chrome.scripting.executeScript(...)` probe for `map.kakao.com` tabs that searches for a visible place modal anchor pointing at `place.map.kakao.com/<id>`.
+  - Normalized modal detections into the existing `kind: "place"` popup state so saved-list matches, background server refresh, and local-note saving all reuse the current place UI.
+  - Added debug output for the detected place source (`url` vs `modal`).
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/extension/src/PopupApp.tsx`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/task_plan.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+### Phase 3: Testing & Verification
+- **Status:** complete
+- Actions taken:
+  - Ran `pnpm --filter @kakao-lists/extension build` successfully.
+  - Ran `pnpm --filter @kakao-lists/extension exec tsc --noEmit` successfully.
+  - Noted a local environment warning during Vite build: Node `22.11.0` is below Vite’s preferred `22.12+`, but the build still completed successfully.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/task_plan.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
 ## Session: 2026-05-14 (Vercel Deployment Readiness)
 
 ### Phase 1: Requirements & Discovery

@@ -35,6 +35,28 @@ const pool = new Pool({
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: "1mb" }));
+app.use((request, response, next) => {
+  const startedAt = performance.now();
+
+  response.on("finish", () => {
+    const durationMs = Math.round((performance.now() - startedAt) * 10) / 10;
+    console.info(
+      `[api] ${request.method} ${request.originalUrl} -> ${response.statusCode} (${durationMs}ms)`
+    );
+  });
+
+  next();
+});
+app.use("/api", async (_request, response, next) => {
+  try {
+    await ensureServerReady();
+    next();
+  } catch (error) {
+    response.status(503).send(
+      error instanceof Error ? `Database is unavailable: ${error.message}` : "Database is unavailable."
+    );
+  }
+});
 
 let initializationPromise: Promise<void> | null = null;
 
@@ -290,20 +312,29 @@ if (isDirectRun) {
 async function startServer() {
   try {
     await ensureServerReady();
-    app.listen(port, () => {
-      console.info(`Kakao Lists sync server listening on http://localhost:${port}`);
-    });
   } catch (error) {
-    console.error(error instanceof Error ? error.message : "Failed to start the sync server.");
-    process.exitCode = 1;
+    console.error(
+      error instanceof Error
+        ? `Postgres initialization failed at startup: ${error.message}`
+        : "Postgres initialization failed at startup."
+    );
   }
+
+  app.listen(port, () => {
+    console.info(`Kakao Lists sync server listening on http://localhost:${port}`);
+  });
 }
 
 function ensureServerReady() {
   if (!initializationPromise) {
-    initializationPromise = initializeDatabase().then(() => {
-      console.info(`Connected to Postgres at ${formatDatabaseTarget(databaseUrl)}`);
-    });
+    initializationPromise = initializeDatabase()
+      .then(() => {
+        console.info(`Connected to Postgres at ${formatDatabaseTarget(databaseUrl)}`);
+      })
+      .catch((error) => {
+        initializationPromise = null;
+        throw error;
+      });
   }
 
   return initializationPromise;

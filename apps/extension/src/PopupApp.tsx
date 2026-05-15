@@ -4,6 +4,7 @@ import { buildKakaoAuthorizeUrl } from "@kakao-lists/kakao";
 import { LocalStorageFavoriteListsRepository } from "@kakao-lists/storage";
 import { HttpCloudSyncClient } from "@kakao-lists/sync";
 import { extractSnapshotFromKakaoMapsTab } from "./kakaoMapsExtractor";
+import { readThemePreference, type ThemePreference, writeThemePreference } from "./theme";
 
 const repository = new LocalStorageFavoriteListsRepository("kakao-lists:extension");
 const syncServerUrl = import.meta.env.VITE_SYNC_SERVER_URL ?? "";
@@ -19,12 +20,15 @@ interface ActiveTabContext {
   title?: string;
   url?: string;
   placeKey?: string;
+  source?: "url" | "modal";
 }
 
 interface PlaceMembership {
   list: FavoriteList;
   item: FavoriteListItem;
 }
+
+type PopupView = "main" | "settings";
 
 export default function PopupApp() {
   const [cloudSession, setCloudSession] = useState<CloudSession | null>(() => readCloudSession());
@@ -36,6 +40,8 @@ export default function PopupApp() {
   const [debugLines, setDebugLines] = useState<string[]>([]);
   const [localNoteDrafts, setLocalNoteDrafts] = useState<Record<string, string>>({});
   const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [view, setView] = useState<PopupView>("main");
+  const [themePreference, setThemePreference] = useState<ThemePreference>(() => readThemePreference());
   const [activeTab, setActiveTab] = useState<ActiveTabContext>({
     kind: "default",
     tabId: null
@@ -127,7 +133,7 @@ export default function PopupApp() {
       return;
     }
 
-    const nextContext = resolveActiveTabContext(tab);
+    const nextContext = await resolveActiveTabContext(tab);
     setActiveTab(nextContext);
     setDebugLines((current) => {
       const next = [...current];
@@ -137,6 +143,9 @@ export default function PopupApp() {
       }
       if (nextContext.placeKey) {
         next.push(`active-place-key:${nextContext.placeKey}`);
+      }
+      if (nextContext.source) {
+        next.push(`active-place-source:${nextContext.source}`);
       }
       return dedupeLines(next);
     });
@@ -464,12 +473,57 @@ export default function PopupApp() {
     }
   }
 
+  async function copyKakaoNote(note: string) {
+    try {
+      if (!navigator.clipboard?.writeText) {
+        throw new Error("Clipboard access is unavailable in this browser.");
+      }
+
+      await navigator.clipboard.writeText(note);
+      setStatus("ready");
+      setMessage("Kakao note copied to the clipboard.");
+    } catch (error) {
+      setStatus("error");
+      setMessage(error instanceof Error ? error.message : "Copy failed.");
+    }
+  }
+
+  async function clearLocalData() {
+    if (isBusy) {
+      return;
+    }
+
+    setBusyAction("clear-local-data");
+    clearLocalExtensionData();
+    setLists([]);
+    setLastSyncedAt(null);
+    setServerVersion(null);
+    setStatus("ready");
+    setMessage("All local extension snapshot data was cleared. Your server copy was not changed.");
+    setDebugLines(["local-data:cleared"]);
+    setBusyAction(null);
+  }
+
+  function updateThemePreference(nextPreference: ThemePreference) {
+    setThemePreference(nextPreference);
+    writeThemePreference(nextPreference);
+  }
+
+  function openSettings() {
+    setView("settings");
+  }
+
+  function closeSettings() {
+    setView("main");
+  }
+
   function clearSession() {
     clearCloudSession();
     setCloudSession(null);
     setLists([]);
     setLastSyncedAt(null);
     setServerVersion(null);
+    setView("main");
     setStatus("idle");
     setMessage("Cloud session cleared from the extension.");
     setDebugLines(["session:cleared"]);
@@ -479,44 +533,79 @@ export default function PopupApp() {
     return (
       <main className="popup-shell">
         <header className="popup-header">
+          <div className="popup-header-left">
+            {view === "settings" ? (
+              <button className="icon-button" aria-label="Back to main popup" disabled={isBusy} onClick={closeSettings} title="Back to main popup" type="button">
+                <span aria-hidden="true">←</span>
+              </button>
+            ) : null}
+          </div>
           <div>
             <div className="badge" aria-hidden="true">&nbsp;</div>
           </div>
           <div className="popup-header-actions">
-            <a className="icon-link" aria-label="Options" href="options.html" title="Options">
-              <span aria-hidden="true">⚙</span>
-            </a>
+            {view === "settings" ? <span className="header-spacer" aria-hidden="true" /> : (
+              <button className="icon-button" aria-label="Options" disabled={isBusy} onClick={openSettings} title="Options" type="button">
+                <span aria-hidden="true">⚙</span>
+              </button>
+            )}
           </div>
         </header>
-        <div className="badge">Extension / Sign In</div>
-        <h1>Sign in with Kakao.</h1>
-        <p className="copy">
-          Once a session exists, the popup can import your lists from an open Kakao Maps tab, but
-          only when you explicitly click the import button.
-        </p>
+        {view === "settings" ? (
+          <>
+            <section className="mini-panel settings-panel">
+              <div className="options-panel-section">
+                <div className="section-label">Appearance</div>
+                <div className="segmented-control" role="group" aria-label="Theme preference">
+                  {(["system", "light", "dark"] as const).map((option) => (
+                    <button
+                      aria-pressed={themePreference === option}
+                      className={`segment${themePreference === option ? " is-active" : ""}`}
+                      key={option}
+                      onClick={() => updateThemePreference(option)}
+                      type="button"
+                    >
+                      {option}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </section>
+            <section className="mini-panel options-debug-card">
+              <div className="section-label">Debug</div>
+              <ul className="options-list">
+                <li>
+                  Register this exact Kakao redirect URI in Kakao Developers:
+                  <code>{redirectUri || "Unavailable"}</code>
+                </li>
+                <li>
+                  If the URI keeps changing after reinstalling the unpacked extension, set
+                  <code>EXTENSION_PUBLIC_KEY</code> before building so the extension id stays fixed.
+                </li>
+              </ul>
+            </section>
+          </>
+        ) : (
+          <>
+            <div className="actions actions-stacked">
+              <button className="button primary" disabled={isBusy} onClick={signIn} type="button">
+                Sign in with Kakao
+              </button>
+              {mockAuthEnabled ? (
+                <button className="button" disabled={isBusy} onClick={signInWithMock} type="button">
+                  Use Mock Sign In
+                </button>
+              ) : null}
+            </div>
 
-        <div className="actions actions-stacked">
-          <button className="button primary" disabled={isBusy} onClick={signIn} type="button">
-            Sign in with Kakao
-          </button>
-          {mockAuthEnabled ? (
-            <button className="button" disabled={isBusy} onClick={signInWithMock} type="button">
-              Use Mock Sign In
-            </button>
-          ) : null}
-        </div>
-
-        <section className="mini-panel">
-          <h2>Status</h2>
-          <p aria-live="polite" role="status">{message}</p>
-          <p className="small-copy">
-            Kakao callback URI: <code>{redirectUri || "Unavailable"}</code>
-          </p>
-          <p className="small-copy">
-            Register that exact URI in Kakao Developers. To keep it stable across reinstalls, build the
-            extension with <code>EXTENSION_PUBLIC_KEY</code> set.
-          </p>
-        </section>
+            {status === "error" ? (
+              <section className="mini-panel">
+                <h2>Sign-In Error</h2>
+                <p aria-live="polite" role="status">{message}</p>
+              </section>
+            ) : null}
+          </>
+        )}
       </main>
     );
   }
@@ -524,19 +613,108 @@ export default function PopupApp() {
   return (
     <main className="popup-shell">
       <header className="popup-header">
+        <div className="popup-header-left">
+          {view === "settings" ? (
+            <button className="icon-button" aria-label="Back to main popup" disabled={isBusy} onClick={closeSettings} title="Back to main popup" type="button">
+              <span aria-hidden="true">←</span>
+            </button>
+          ) : null}
+        </div>
         <div>
           <div className="badge" aria-hidden="true">&nbsp;</div>
         </div>
         <div className="popup-header-actions">
-          <button className="icon-button" aria-label="Sign out" disabled={isBusy} onClick={clearSession} title="Sign out" type="button">
-            <span aria-hidden="true">⇥</span>
-          </button>
-          <a className="icon-link" aria-label="Options" href="options.html" title="Options">
-            <span aria-hidden="true">⚙</span>
-          </a>
+          {view === "settings" ? <span className="header-spacer" aria-hidden="true" /> : (
+            <button className="icon-button" aria-label="Options" disabled={isBusy} onClick={openSettings} title="Options" type="button">
+              <span aria-hidden="true">⚙</span>
+            </button>
+          )}
         </div>
       </header>
-      {activeTab.kind === "place" ? (
+      {view === "settings" ? (
+        <>
+          <section className="mini-panel settings-panel">
+            <section className="options-panel-section">
+              <div className="section-label">Appearance</div>
+              <div className="segmented-control" role="group" aria-label="Theme preference">
+                {(["system", "light", "dark"] as const).map((option) => (
+                  <button
+                    aria-pressed={themePreference === option}
+                    className={`segment${themePreference === option ? " is-active" : ""}`}
+                    key={option}
+                    onClick={() => updateThemePreference(option)}
+                    type="button"
+                  >
+                    {option}
+                  </button>
+                ))}
+              </div>
+            </section>
+
+            <div className="actions actions-stacked">
+              <button className="button primary" disabled={isBusy} onClick={() => void pullFromServer()} type="button">
+                Pull Server Data
+              </button>
+              <button className="button danger" disabled={isBusy} onClick={() => void clearLocalData()} type="button">
+                Clear All Local Data
+              </button>
+            </div>
+
+            <section className="options-panel-section">
+              <div className="section-label">Session</div>
+              <p aria-live="polite" className="small-copy" role="status">
+                {message}
+              </p>
+
+              <ul className="compact-list meta">
+                <li>
+                  <strong>Status</strong>
+                  <span>{status}</span>
+                </li>
+                <li>
+                  <strong>Kakao user</strong>
+                  <span>{cloudSession.user.id}</span>
+                </li>
+                <li>
+                  <strong>Stored lists</strong>
+                  <span>{formatCountLabel(lists.length, "list", "lists")}</span>
+                </li>
+                <li>
+                  <strong>Last synced</strong>
+                  <span>{formatDate(lastSyncedAt)}</span>
+                </li>
+                <li>
+                  <strong>Server version</strong>
+                  <span>{serverVersion ?? "Unknown"}</span>
+                </li>
+              </ul>
+            </section>
+          </section>
+          <section className="mini-panel options-signout-card">
+            <div className="section-label">Account</div>
+            <div className="actions actions-stacked settings-actions">
+              <button className="button danger" disabled={isBusy} onClick={clearSession} type="button">
+                Sign Out
+              </button>
+            </div>
+          </section>
+          <section className="mini-panel options-debug-card">
+            <div className="section-label">Debug</div>
+            <ul className="options-list">
+              <li>The extension popup signs in through `chrome.identity.launchWebAuthFlow`.</li>
+              <li>
+                Register this exact Kakao redirect URI in Kakao Developers:
+                <code>{redirectUri}</code>
+              </li>
+              <li>
+                If the URI keeps changing after reinstalling the unpacked extension, set
+                <code>EXTENSION_PUBLIC_KEY</code> before building so the extension id stays fixed.
+              </li>
+              <li>Clearing local data removes the extension cache and local device id only. It does not delete the server snapshot.</li>
+            </ul>
+          </section>
+        </>
+      ) : activeTab.kind === "place" ? (
         <>
           <section className="mini-panel">
             <div className="section-head-inline">
@@ -574,7 +752,18 @@ export default function PopupApp() {
                     {item.kakaoNote ? (
                       <div className="note-block">
                         <label>Kakao note</label>
-                        <span>{item.kakaoNote}</span>
+                        <div className="kakao-note-body">
+                          <button
+                            aria-label="Copy Kakao note"
+                            className="copy-note-button"
+                            onClick={() => void copyKakaoNote(item.kakaoNote ?? "")}
+                            title="Copy Kakao note"
+                            type="button"
+                          >
+                            <CopyIcon />
+                          </button>
+                          <span>{item.kakaoNote}</span>
+                        </div>
                       </div>
                     ) : null}
                     <div className="note-block">
@@ -660,23 +849,14 @@ export default function PopupApp() {
           </section>
         </>
       )}
-
-      <section className="mini-panel popup-debug-card">
-        <h2>Debug</h2>
-        {debugLines.length === 0 ? (
-          <p>No debug data yet.</p>
-        ) : (
-          <ul className="compact-list debug-list">
-            {debugLines.map((line, index) => (
-              <li key={`${line}-${index}`}>
-                <code>{line}</code>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
     </main>
   );
+}
+
+interface OpenPlaceModalContext {
+  href?: string;
+  placeKey?: string;
+  title?: string;
 }
 
 async function fetchServerSnapshot(cloudSync: HttpCloudSyncClient) {
@@ -688,7 +868,7 @@ async function fetchServerSnapshot(cloudSync: HttpCloudSyncClient) {
   return result;
 }
 
-function resolveActiveTabContext(tab: chrome.tabs.Tab): ActiveTabContext {
+async function resolveActiveTabContext(tab: chrome.tabs.Tab): Promise<ActiveTabContext> {
   const url = tab.url ?? "";
   const placeKey = extractPlaceKeyFromUrl(url);
 
@@ -698,8 +878,23 @@ function resolveActiveTabContext(tab: chrome.tabs.Tab): ActiveTabContext {
       tabId: tab.id ?? null,
       title: tab.title ?? undefined,
       url,
-      placeKey
+      placeKey,
+      source: "url"
     };
+  }
+
+  if (tab.id && isKakaoMapsPageUrl(url)) {
+    const modalPlace = await readOpenPlaceModalContext(tab.id);
+    if (modalPlace?.placeKey) {
+      return {
+        kind: "place",
+        tabId: tab.id,
+        title: modalPlace.title ?? tab.title ?? undefined,
+        url: modalPlace.href ?? url,
+        placeKey: modalPlace.placeKey,
+        source: "modal"
+      };
+    }
   }
 
   return {
@@ -726,6 +921,88 @@ function extractPlaceKeyFromUrl(url: string): string | null {
 
 function extractPlaceKeyFromHref(href?: string): string | null {
   return href ? extractPlaceKeyFromUrl(href) : null;
+}
+
+function isKakaoMapsPageUrl(url: string): boolean {
+  try {
+    return new URL(url).hostname === "map.kakao.com";
+  } catch {
+    return false;
+  }
+}
+
+async function readOpenPlaceModalContext(tabId: number): Promise<OpenPlaceModalContext | null> {
+  try {
+    const [{ result }] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: findOpenPlaceModalInPage
+    });
+
+    if (!result || typeof result !== "object") {
+      return null;
+    }
+
+    const candidate = result as OpenPlaceModalContext;
+    const placeKey = extractPlaceKeyFromHref(candidate.href);
+    if (!placeKey) {
+      return null;
+    }
+
+    return {
+      href: candidate.href,
+      placeKey,
+      title: candidate.title
+    };
+  } catch {
+    return null;
+  }
+}
+
+function findOpenPlaceModalInPage(): OpenPlaceModalContext | null {
+  const selectors = [
+    '#view\\.mapContainer div.head_tooltip > strong > a.name[href*="place.map.kakao.com/"]',
+    '#view\\.mapContainer div.head_tooltip a.name[href*="place.map.kakao.com/"]',
+    '#view\\.mapContainer a.name[data-id="name"][href*="place.map.kakao.com/"]'
+  ];
+
+  const isVisible = (element: Element | null): element is HTMLElement => {
+    if (!(element instanceof HTMLElement)) {
+      return false;
+    }
+
+    const style = window.getComputedStyle(element);
+    const rect = element.getBoundingClientRect();
+    return style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0;
+  };
+
+  for (const selector of selectors) {
+    const anchor = document.querySelector<HTMLAnchorElement>(selector);
+    if (!anchor || !isVisible(anchor)) {
+      continue;
+    }
+
+    return {
+      href: anchor.href,
+      title: anchor.textContent?.trim() || anchor.title?.trim() || undefined
+    };
+  }
+
+  const fallbackAnchors = Array.from(
+    document.querySelectorAll<HTMLAnchorElement>('#view\\.mapContainer a[href*="place.map.kakao.com/"]')
+  );
+
+  for (const anchor of fallbackAnchors) {
+    if (!isVisible(anchor)) {
+      continue;
+    }
+
+    return {
+      href: anchor.href,
+      title: anchor.textContent?.trim() || anchor.title?.trim() || undefined
+    };
+  }
+
+  return null;
 }
 
 function dedupeLines(lines: string[]) {
@@ -764,6 +1041,12 @@ function filterVisibleLists(lists: FavoriteList[]) {
 
 function isDeletedFolderPlaceholder(list: FavoriteList) {
   return list.itemCount === 0 && /^Folder \d+$/.test(list.name.trim());
+}
+
+function clearLocalExtensionData() {
+  window.localStorage.removeItem("kakao-lists:extension");
+  window.localStorage.removeItem("kakao-lists:extension-device-id");
+  window.localStorage.removeItem("kakao-lists:extension-server-version");
 }
 
 function readCloudSession(): CloudSession | null {
@@ -850,4 +1133,13 @@ function formatCountLabel(count: number, singular: string, plural: string) {
 
 function getUserLocale() {
   return navigator.language || "en-US";
+}
+
+function CopyIcon() {
+  return (
+    <svg aria-hidden="true" fill="none" viewBox="0 0 24 24">
+      <rect height="12" rx="2" stroke="currentColor" strokeWidth="1.7" width="11" x="9" y="8" />
+      <path d="M15 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3" stroke="currentColor" strokeWidth="1.7" />
+    </svg>
+  );
 }

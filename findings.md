@@ -1,5 +1,32 @@
 # Findings & Decisions
 
+## Extension Place-Modal Detection: 2026-05-15
+
+### Key Findings
+- The extension popup already has a complete place-specific UI path in `apps/extension/src/PopupApp.tsx` that renders matching saved-list memberships and local-note editing whenever `activeTab.kind === "place"` and a `placeKey` is present.
+- Current place detection is URL-only: `resolveActiveTabContext(...)` extracts the place id exclusively from `place.map.kakao.com/<id>` URLs.
+- The extension already has the permissions needed to inspect the active Kakao Maps page at popup-open time:
+  - `scripting` permission
+  - `https://map.kakao.com/*` host permission
+- The modal markup provided by the user includes an anchor to `https://place.map.kakao.com/1246170309`, which means the modal case can reuse the existing `placeKey` matching logic with no domain-model changes.
+
+### Technical Decisions
+| Decision | Rationale |
+|----------|-----------|
+| Add a one-shot DOM probe for the active `map.kakao.com` tab from the popup | The popup already does on-demand page scripting for imports; a persistent content script is unnecessary for this behavior |
+| Normalize modal-derived context into the same `ActiveTabContext` shape as direct place pages | This avoids duplicating render logic and keeps note-save/open-in-PWA behavior unchanged |
+| Prefer explicit stable selectors plus a fallback anchor search for `place.map.kakao.com` links | Kakao Maps DOM can shift, so a narrow primary selector should be paired with a resilient fallback |
+
+### Verified Implementation Notes
+- `apps/extension/src/PopupApp.tsx` now resolves active-tab place context asynchronously instead of relying only on the tab URL.
+- If the active tab URL is already `place.map.kakao.com/<id>`, the popup keeps using the original direct URL path.
+- If the active tab is `map.kakao.com`, the popup now runs a one-shot DOM probe with `chrome.scripting.executeScript(...)` and searches the map container for a visible place anchor that points to `place.map.kakao.com/<id>`.
+- When such an anchor is found, the popup marks the tab as a place context with `source: "modal"`, which reuses the existing saved-in-lists UI, server refresh, and local-note save flow.
+- The popup debug card now records whether the detected place source was `url` or `modal`.
+
+### Residual Limitation
+- The modal detection depends on Kakao Maps DOM structure and visible place-link anchors. If Kakao changes the modal markup substantially, the selector fallback may need another adjustment.
+
 ## Requirements
 - Build a project with both a Chrome/Brave browser extension and a PWA.
 - Support Kakao authentication.

@@ -16,7 +16,7 @@ export class HttpCloudSyncClient implements CloudSyncClient {
   ) {}
 
   async exchangeKakaoCode(input: ExchangeKakaoCodeInput): Promise<CloudSession> {
-    const response = await fetch(`${this.baseUrl}/api/auth/kakao/exchange`, {
+    const response = await this.request(`${this.baseUrl}/api/auth/kakao/exchange`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
@@ -28,7 +28,7 @@ export class HttpCloudSyncClient implements CloudSyncClient {
   }
 
   async createMockSession(input: MockAuthInput = {}): Promise<CloudSession> {
-    const response = await fetch(`${this.baseUrl}/api/auth/mock`, {
+    const response = await this.request(`${this.baseUrl}/api/auth/mock`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
@@ -40,7 +40,7 @@ export class HttpCloudSyncClient implements CloudSyncClient {
   }
 
   async pushSnapshot(input: PushSnapshotInput): Promise<PushSnapshotResult> {
-    const response = await fetch(`${this.baseUrl}/api/snapshot`, {
+    const response = await this.request(`${this.baseUrl}/api/snapshot`, {
       method: "PUT",
       headers: withAuthHeaders(this.getAuthToken, {
         "Content-Type": "application/json"
@@ -52,7 +52,7 @@ export class HttpCloudSyncClient implements CloudSyncClient {
   }
 
   async syncFromKakao(): Promise<PushSnapshotResult> {
-    const response = await fetch(`${this.baseUrl}/api/sync/kakao`, {
+    const response = await this.request(`${this.baseUrl}/api/sync/kakao`, {
       method: "POST",
       headers: withAuthHeaders(this.getAuthToken)
     });
@@ -61,7 +61,7 @@ export class HttpCloudSyncClient implements CloudSyncClient {
   }
 
   async pullLatestSnapshot(): Promise<PullSnapshotResult> {
-    const response = await fetch(`${this.baseUrl}/api/snapshot`, {
+    const response = await this.request(`${this.baseUrl}/api/snapshot`, {
       headers: withAuthHeaders(this.getAuthToken)
     });
 
@@ -69,7 +69,7 @@ export class HttpCloudSyncClient implements CloudSyncClient {
   }
 
   async updateLocalNote(input: UpdateLocalNoteInput): Promise<PushSnapshotResult> {
-    const response = await fetch(`${this.baseUrl}/api/snapshot/item-note`, {
+    const response = await this.request(`${this.baseUrl}/api/snapshot/item-note`, {
       method: "PATCH",
       headers: withAuthHeaders(this.getAuthToken, {
         "Content-Type": "application/json"
@@ -78,6 +78,14 @@ export class HttpCloudSyncClient implements CloudSyncClient {
     });
 
     return parseJson<PushSnapshotResult>(response);
+  }
+
+  private async request(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+    try {
+      return await fetch(input, init);
+    } catch (error) {
+      throw toReadableNetworkError(this.baseUrl, error);
+    }
   }
 }
 
@@ -103,4 +111,14 @@ async function parseJson<T>(response: Response): Promise<T> {
   }
 
   return (await response.json()) as T;
+}
+
+function toReadableNetworkError(baseUrl: string, error: unknown) {
+  if (error instanceof TypeError) {
+    return new Error(
+      `Could not reach the sync server at ${baseUrl}. Start the local server or update VITE_SYNC_SERVER_URL, then rebuild the extension.`
+    );
+  }
+
+  return error instanceof Error ? error : new Error("Sync request failed.");
 }
