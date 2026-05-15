@@ -20,7 +20,7 @@ import type {
 
 loadRootEnvFiles();
 
-const port = Number(process.env.SYNC_SERVER_PORT ?? 8787);
+const port = Number(process.env.PORT ?? process.env.SYNC_SERVER_PORT ?? 8787);
 const databaseUrl =
   process.env.DATABASE_URL ??
   "postgres://postgres:postgres@localhost:5432/kakao_lists";
