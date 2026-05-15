@@ -19,7 +19,7 @@ const repository = new LocalStorageFavoriteListsRepository(
 );
 const syncServerUrl = import.meta.env.VITE_SYNC_SERVER_URL ?? "";
 const kakaoClientId = import.meta.env.VITE_KAKAO_REST_API_KEY ?? "";
-const kakaoScope = import.meta.env.VITE_KAKAO_SCOPE ?? "";
+const kakaoScope = import.meta.env.VITE_KAKAO_SCOPE?.trim() ?? "";
 const pwaBaseUrl = import.meta.env.VITE_PWA_BASE_URL ?? "http://localhost:5173";
 const mockAuthEnabled = import.meta.env.VITE_ENABLE_MOCK_AUTH === "true";
 const debugMode = __DEBUG_MODE__;
