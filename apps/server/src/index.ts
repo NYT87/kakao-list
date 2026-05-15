@@ -35,7 +35,7 @@ const pool = new Pool({
   connectionString: databaseUrl,
 });
 
-const app = express();
+const app: express.Express = express();
 app.use(cors());
 app.use(express.json({ limit: "1mb" }));
 app.use((request, response, next) => {
