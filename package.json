@@ -12,6 +12,7 @@
     "dev:pwa": "pnpm --filter @kakao-lists/pwa dev",
     "dev:extension": "pnpm --filter @kakao-lists/extension dev",
     "dev:server": "pnpm --filter @kakao-lists/server dev",
+    "bundle:extension": "node scripts/bundle-extension.mjs",
     "build": "pnpm --filter @kakao-lists/server build && pnpm --filter @kakao-lists/pwa build && pnpm --filter @kakao-lists/extension build",
     "typecheck": "tsc -b packages/domain packages/kakao packages/storage packages/sync apps/server apps/pwa apps/extension",
     "check": "biome check .",

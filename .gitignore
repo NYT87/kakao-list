@@ -5,3 +5,9 @@ dist
 .env.local
 coverage
 *.tsbuildinfo
+
+*.zip
+*.log
+*.sqlite
+
+.secrets

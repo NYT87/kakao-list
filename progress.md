@@ -683,11 +683,15 @@
   - Summarized the root cause as Kakao redirect registration plus extension-id drift.
   - Delivered the code changes and the exact next Kakao Developers setup steps to the user.
   - Added a dedicated markdown guide for generating `EXTENSION_PUBLIC_KEY` and linked it from the README.
+  - Added `pnpm bundle:extension` to build and zip the extension for manual distribution.
+  - Expanded the public-key guide with a local RSA keypair workflow, clearly marked as an inferred alternative to Chrome’s officially documented dashboard flow.
 - Files created/modified:
   - `/Users/josemiguel/workspace-personal/kakao-lists/task_plan.md`
   - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
   - `/Users/josemiguel/workspace-personal/kakao-lists/docs/extension-public-key.md`
   - `/Users/josemiguel/workspace-personal/kakao-lists/README.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/scripts/bundle-extension.mjs`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/package.json`
 
 ## Session: 2026-05-10
 

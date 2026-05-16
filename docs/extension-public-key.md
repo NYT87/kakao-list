@@ -77,6 +77,49 @@ Chrome’s docs also describe getting the key from an installed packaged extensi
 2. Inspect the installed extension’s `manifest.json`.
 3. Copy the generated `key` value.
 
+## Local Generation
+
+Chrome’s official docs point to the Developer Dashboard flow above. The local method below is an inference from that format: `manifest.key` is the one-line body of a PEM public key.
+
+If you want to generate your own stable keypair locally and keep reusing it:
+
+1. Generate a private key:
+
+```bash
+mkdir -p .secrets
+openssl genrsa -out .secrets/extension-private-key.pem 2048
+```
+
+2. Derive the matching public key:
+
+```bash
+openssl rsa -in .secrets/extension-private-key.pem -pubout -out .secrets/extension-public-key.pem
+```
+
+3. Convert the public key into the single-line value expected by `EXTENSION_PUBLIC_KEY`:
+
+```bash
+awk 'NR > 1 && $0 !~ /END PUBLIC KEY/ { printf "%s", $0 }' .secrets/extension-public-key.pem
+```
+
+4. Copy that output into `.env.local`:
+
+```dotenv
+EXTENSION_PUBLIC_KEY=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A...
+```
+
+5. Rebuild the extension:
+
+```bash
+pnpm bundle:extension
+```
+
+Important:
+
+- Keep `.secrets/extension-private-key.pem` private and reuse the same file forever if you want the same extension ID.
+- If you lose that private key and generate a new one, the extension ID and Kakao redirect URI will change.
+- This local generation workflow is practical, but the Developer Dashboard flow remains the officially documented Chrome path.
+
 ## References
 
 - [Chrome Extensions: Manifest `key`](https://developer.chrome.com/docs/extensions/reference/manifest/key)

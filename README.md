@@ -136,6 +136,16 @@ docker compose up -d postgres
 pnpm dev:extension
 ```
 
+8. Create a distributable zip for manual extension installation:
+
+```bash
+pnpm bundle:extension
+```
+
+This writes:
+
+- `apps/extension/kakao-lists-extension.zip`
+
 ## Kakao App Setup Notes
 
 - Register the web redirect URI from `VITE_KAKAO_REDIRECT_URI` in your Kakao app.
@@ -147,6 +157,14 @@ pnpm dev:extension
 ## Environment Variables
 
 See [.env.example](/Users/josemiguel/workspace-personal/kakao-lists/.env.example).
+
+## Zip Distribution Notes
+
+- The generated zip is for manual distribution, not Chrome Web Store publishing.
+- Users cannot normally install a random zip directly in Chrome or Brave.
+- Users must unzip it, open `chrome://extensions`, enable Developer mode, click `Load unpacked`, and select the extracted `dist` folder.
+- If you need a stable Kakao redirect URI for this manual distribution flow, see [docs/extension-public-key.md](/Users/josemiguel/workspace-personal/kakao-lists/docs/extension-public-key.md).
+- The repo bundle command is `pnpm bundle:extension`, and it writes [apps/extension/kakao-lists-extension.zip](/Users/josemiguel/workspace-personal/kakao-lists/apps/extension/kakao-lists-extension.zip).
 
 ## Deploying To Vercel
 
