@@ -170,6 +170,14 @@ VITE_SYNC_SERVER_URL=https://your-api-domain
 VITE_ENABLE_MOCK_AUTH=false
 ```
 
+Important:
+
+- `VITE_KAKAO_REDIRECT_URI` must be the deployed PWA callback URL, not the API domain.
+- `VITE_SYNC_SERVER_URL` must be the deployed API base URL, including `https://`.
+- For example:
+  - `VITE_KAKAO_REDIRECT_URI=https://kakao-list-pwa.vercel.app/auth/kakao/callback`
+  - `VITE_SYNC_SERVER_URL=https://kakao-list-api.vercel.app`
+
 ### 2. Create the API project
 
 - Root Directory: `apps/server`
@@ -205,6 +213,11 @@ After the API is deployed:
 3. Set the same `VITE_SYNC_SERVER_URL` value in the extension build environment.
 4. Rebuild the extension so its manifest includes the deployed API origin in `host_permissions`.
 5. Redeploy the PWA.
+
+Kakao setup reminder:
+
+- In Kakao Developers, register the same deployed PWA callback URL used by `VITE_KAKAO_REDIRECT_URI`.
+- Do not register the API domain as the Kakao redirect URI for the PWA flow.
 
 For the extension, `VITE_SYNC_SERVER_URL` now serves two purposes:
 
