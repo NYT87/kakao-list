@@ -1,5 +1,43 @@
 # Progress Log
 
+## Session: 2026-05-16 (Editable Kakao Notes)
+
+### Phase 1: Requirements & Discovery
+- **Status:** complete
+- Actions taken:
+  - Inspected the current place-membership note UI and confirmed `kakaoNote` was rendered only as optional read-only text.
+  - Mapped the user-provided Kakao Maps network call to `POST /favorite/update.json` with `seq`, `display1`, `display2`, `color`, and `memo`.
+  - Chose a Kakao-first save flow that executes inside a live `map.kakao.com` tab and then persists the result locally plus to the app server.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/task_plan.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+### Phase 2: Implementation
+- **Status:** complete
+- Actions taken:
+  - Added a Kakao Maps tab-context note update helper that posts to `favorite/update.json`.
+  - Added always-visible Kakao-note draft inputs to the place-membership UI.
+  - Added Kakao-note save behavior that updates Kakao Maps first, then updates the local snapshot and syncs the changed list back to the server.
+  - Added small layout styling for the inline Kakao-note edit row.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/extension/src/kakaoMapsExtractor.ts`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/extension/src/PopupApp.tsx`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/extension/src/styles.css`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/task_plan.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+### Phase 3: Verification
+- **Status:** complete
+- Actions taken:
+  - Ran `pnpm --filter @kakao-lists/extension build` successfully.
+  - Ran `pnpm typecheck` successfully from the repo root.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/task_plan.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
 ## Session: 2026-05-16 (Chunked List-by-List Sync)
 
 ### Phase 1: Requirements & Discovery

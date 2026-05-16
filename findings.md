@@ -1,5 +1,21 @@
 # Findings & Decisions
 
+## Editable Kakao Notes: 2026-05-16
+
+### Key Findings
+- The extension currently renders `kakaoNote` only as read-only text, and only when the note is non-empty.
+- The editable field in the popup is currently only `localNote`, which saves to the project’s own sync server rather than to Kakao Maps.
+- The user’s captured network call shows Kakao Maps updates notes with `POST https://map.kakao.com/favorite/update.json`.
+- The observed request body includes `seq`, `display1`, `display2`, `color`, and `memo`.
+- The observed response returns a success envelope plus the updated request payload, which is enough for the extension to treat the Kakao-side save as successful without a full re-import.
+
+### Technical Decisions
+| Decision | Rationale |
+|----------|-----------|
+| Always show the Kakao-note input, even when the current note is empty | The user wants note creation and editing from the same control |
+| Execute Kakao-note writes inside a live `map.kakao.com` tab | The request relies on the browser’s signed-in Kakao Maps session |
+| After Kakao save succeeds, update the local snapshot and sync only the changed list to the server | This keeps the extension view consistent without requiring a full re-import |
+
 ## Chunked List-by-List Sync: 2026-05-16
 
 ### Key Findings

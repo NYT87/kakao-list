@@ -61,6 +61,30 @@ export interface ExtractedKakaoMapsSnapshot {
   debug: string[];
 }
 
+interface KakaoNoteUpdateInput {
+  seq: string;
+  display1: string;
+  display2: string;
+  color: string;
+  memo: string;
+}
+
+interface KakaoNoteUpdateResult {
+  tabId: number;
+  tabTitle?: string;
+  tabUrl?: string;
+  memo: string;
+  debug: string[];
+}
+
+interface KakaoNoteUpdateEnvelope {
+  ok: boolean;
+  memo?: string;
+  error?: string;
+  pageHref?: string;
+  responsePreview?: string;
+}
+
 export async function extractSnapshotFromKakaoMapsTab(): Promise<ExtractedKakaoMapsSnapshot | null> {
   const tab = await findKakaoMapsTab();
   if (!tab?.id) {
@@ -111,6 +135,58 @@ export async function extractSnapshotFromKakaoMapsTab(): Promise<ExtractedKakaoM
       `folder-count:${envelope.result.folderCount}`,
       `place-count:${envelope.result.placeCount}`,
       `folder-ids:${envelope.result.folderIds.slice(0, 12).join(",") || "none"}`,
+    ],
+  };
+}
+
+export async function updateKakaoFavoriteNote(
+  input: KakaoNoteUpdateInput,
+): Promise<KakaoNoteUpdateResult> {
+  const tab = await findKakaoMapsTab();
+  if (!tab?.id) {
+    throw new Error(
+      "Open Kakao Maps in a signed-in tab before saving a Kakao note.",
+    );
+  }
+
+  const [{ result }] = await chrome.scripting.executeScript({
+    target: {
+      tabId: tab.id,
+    },
+    world: "MAIN",
+    func: updateKakaoFavoriteNoteInPageEnvelope,
+    args: [input],
+  });
+
+  if (!result) {
+    throw new Error(
+      "Kakao note update returned no data. Reload the Kakao Maps tab and try again.",
+    );
+  }
+
+  const envelope = result as KakaoNoteUpdateEnvelope;
+  if (!envelope.ok) {
+    throw new Error(
+      envelope.error
+        ? `Kakao note update failed: ${envelope.error}${envelope.pageHref ? ` @ ${envelope.pageHref}` : ""}${
+            envelope.responsePreview
+              ? ` | preview: ${envelope.responsePreview}`
+              : ""
+          }`
+        : "Kakao note update returned no structured result.",
+    );
+  }
+
+  return {
+    tabId: tab.id,
+    tabTitle: tab.title ?? undefined,
+    tabUrl: tab.url ?? undefined,
+    memo: envelope.memo ?? input.memo,
+    debug: [
+      `note-update-tab:${tab.id}`,
+      `note-update-page:${envelope.pageHref ?? tab.url ?? "unknown"}`,
+      `note-update-seq:${input.seq}`,
+      `note-update-memo-length:${(envelope.memo ?? input.memo).length}`,
     ],
   };
 }
@@ -336,6 +412,85 @@ async function extractSnapshotInPageEnvelope(): Promise<PageExtractionEnvelope> 
       error: error instanceof Error ? error.message : String(error),
       pageHref: window.location.href,
       responsePreview: error instanceof Error ? undefined : String(error),
+    };
+  }
+}
+
+async function updateKakaoFavoriteNoteInPageEnvelope(
+  input: KakaoNoteUpdateInput,
+): Promise<KakaoNoteUpdateEnvelope> {
+  try {
+    const response = await fetch(
+      new URL("/favorite/update.json", window.location.origin).toString(),
+      {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          seq: input.seq,
+          display1: input.display1,
+          display2: input.display2,
+          color: input.color,
+          memo: input.memo,
+        }),
+      },
+    );
+
+    const raw = await response.text();
+    if (!response.ok) {
+      return {
+        ok: false,
+        error: `Kakao Maps request failed with status ${response.status}`,
+        pageHref: window.location.href,
+        responsePreview: raw.slice(0, 180),
+      };
+    }
+
+    let parsed: {
+      status?: { code?: string; message?: string };
+      req?: { memo?: string };
+    } | null = null;
+
+    try {
+      parsed = JSON.parse(raw) as {
+        status?: { code?: string; message?: string };
+        req?: { memo?: string };
+      };
+    } catch {
+      return {
+        ok: false,
+        error: "Kakao Maps returned non-JSON while saving the note.",
+        pageHref: window.location.href,
+        responsePreview: raw.slice(0, 180),
+      };
+    }
+
+    if (parsed?.status?.code !== "SUCCESS") {
+      return {
+        ok: false,
+        error:
+          parsed?.status?.message || "Kakao Maps rejected the note update.",
+        pageHref: window.location.href,
+        responsePreview: raw.slice(0, 180),
+      };
+    }
+
+    return {
+      ok: true,
+      memo: parsed.req?.memo ?? input.memo,
+      pageHref: window.location.href,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Kakao note update failed in the page context.",
+      pageHref: window.location.href,
     };
   }
 }

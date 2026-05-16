@@ -1,22 +1,22 @@
-# Task Plan: Chunked List-by-List Sync
+# Task Plan: Editable Kakao Notes
 
 ## Goal
-Split extension snapshot uploads into per-list requests so large imports do not require sending the entire snapshot in one request.
+Allow editing Kakao notes from the extension by always showing a Kakao-note input and saving it back to Kakao Maps plus local/server snapshot state.
 
 ## Current Phase
 Phase 3
 
 ## Phases
 ### Phase 1: Requirements & Discovery
-- [x] Inspect the current whole-snapshot sync contract
-- [x] Identify the smallest safe chunked-upload design that preserves deletions
-- [x] Record the design in findings.md
+- [x] Inspect the current place-note UI and note persistence flow
+- [x] Identify the Kakao Maps write endpoint and required request shape
+- [x] Record the note-editing design in findings.md
 - **Status:** complete
 
 ### Phase 2: Implementation
-- [x] Add a server endpoint for upserting a single list into the current snapshot
-- [x] Extend the shared sync client contract
-- [x] Update the extension import flow to upload lists sequentially
+- [x] Always render a Kakao-note input
+- [x] Add Kakao-note save through a live Kakao Maps tab
+- [x] Persist the edited note locally and sync the changed list back to the server
 - **Status:** complete
 
 ### Phase 3: Verification
@@ -26,22 +26,21 @@ Phase 3
 - **Status:** complete
 
 ## Key Questions
-1. Can list-by-list sync be added without redesigning the database schema?
-2. How do we prevent deleted Kakao lists from lingering on the server forever?
-3. Should the extension still have a fallback whole-snapshot path for empty imports?
+1. Where in the popup should Kakao note become editable instead of read-only?
+2. What minimum request fields are needed for `favorite/update.json` based on the observed network call?
+3. How should the extension behave if Kakao note save succeeds on Kakao Maps but server sync fails afterward?
 
 ## Decisions Made
 | Decision | Rationale |
 |----------|-----------|
-| Keep the server’s stored shape as one latest snapshot blob | This minimizes schema churn and risk |
-| Add `PUT /api/snapshot/list` to merge one list into the current snapshot | This reduces payload size while reusing the existing history/version model |
-| Send `expectedListIds` on the final list upload | This lets the server prune lists that disappeared from the source import |
-| Keep the existing whole-snapshot upload path for zero-list snapshots | An empty snapshot is small and still needs to clear server state cleanly |
+| Reuse the existing `kakaoNote` field instead of adding a new note property | The imported snapshot already models the Kakao memo separately from the local note |
+| Save Kakao note through a Kakao Maps tab-context fetch to `favorite/update.json` | The write operation depends on the logged-in Kakao Maps browser session |
+| Treat Kakao note save as Kakao-first, then local/server persistence | The source of truth for the Kakao memo is Kakao Maps itself |
 
 ## Errors Encountered
 | Error | Attempt | Resolution |
 |-------|---------|------------|
-| Existing `task_plan.md` was stale for the previous import-local-first task | 1 | Replaced it with a plan for chunked list-by-list sync |
+| Existing `task_plan.md` was stale for the previous chunked-sync task | 1 | Replaced it with a plan for editable Kakao notes |
 
 ## Notes
 - Re-read this plan before major decisions.
