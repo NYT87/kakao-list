@@ -1,5 +1,20 @@
 # Findings & Decisions
 
+## Chunked List-by-List Sync: 2026-05-16
+
+### Key Findings
+- The current server model stores one latest snapshot JSON blob per Kakao user plus history rows; it does not store lists independently in normalized tables.
+- That storage model can still support chunked uploads by reading the current snapshot, merging one list, and writing back a new full snapshot server-side.
+- A naive list-by-list upsert would leave removed Kakao lists behind on the server.
+- Sending the full expected set of list IDs on the final list upload is enough for the server to prune deleted lists without sending the whole snapshot payload.
+
+### Technical Decisions
+| Decision | Rationale |
+|----------|-----------|
+| Add `PushSnapshotListInput` to the shared domain contract | Keeps the list-chunk request typed across client and server |
+| Implement `PUT /api/snapshot/list` | This is the smallest API addition that supports chunked uploads |
+| Merge server-side and prune with `expectedListIds` on the final chunk | Preserves deletions while keeping each request small |
+
 ## Extension Import + Server Payload Limit: 2026-05-16
 
 ### Key Findings

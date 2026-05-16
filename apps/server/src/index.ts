@@ -9,9 +9,11 @@ import { Pool, type PoolClient } from "pg";
 import type {
   CloudSession,
   ExchangeKakaoCodeInput,
+  FavoriteList,
   KakaoUserProfile,
   MockAuthInput,
   PullSnapshotResult,
+  PushSnapshotListInput,
   PushSnapshotInput,
   PushSnapshotResult,
   SyncSnapshot,
@@ -271,6 +273,47 @@ app.put("/api/snapshot", async (request, response) => {
   }
 });
 
+app.put("/api/snapshot/list", async (request, response) => {
+  const auth = await requireAuthenticatedSession(request, response);
+  if (!auth) {
+    return;
+  }
+
+  const body = request.body as Partial<PushSnapshotListInput>;
+  if (!body.deviceId || !body.list || !body.syncedAt || !body.source) {
+    response
+      .status(400)
+      .send("Body must include deviceId, list, syncedAt, and source.");
+    return;
+  }
+
+  try {
+    const { session } = auth;
+    const current = await getLatestSnapshotRow(session.user.id);
+    const mergedSnapshot = mergeSnapshotList({
+      currentSnapshot: current?.snapshot ?? null,
+      list: body.list,
+      syncedAt: body.syncedAt,
+      source: body.source,
+      expectedListIds: body.expectedListIds,
+    });
+    const validatedSnapshot = validateSnapshot(mergedSnapshot);
+    const result = await saveLatestSnapshot({
+      userId: session.user.id,
+      deviceId: body.deviceId,
+      snapshot: validatedSnapshot,
+    });
+
+    response.json(result);
+  } catch (error) {
+    response
+      .status(400)
+      .send(
+        error instanceof Error ? error.message : "Snapshot list write failed.",
+      );
+  }
+});
+
 app.patch("/api/snapshot/item-note", async (request, response) => {
   const auth = await requireAuthenticatedSession(request, response);
   if (!auth) {
@@ -522,6 +565,32 @@ function validateSnapshot(snapshot: Partial<SyncSnapshot>): SyncSnapshot {
     syncedAt: snapshot.syncedAt,
     source: snapshot.source,
     lists: snapshot.lists,
+  };
+}
+
+function mergeSnapshotList(input: {
+  currentSnapshot: SyncSnapshot | null;
+  list: FavoriteList;
+  syncedAt: string;
+  source: string;
+  expectedListIds?: string[];
+}): SyncSnapshot {
+  const currentLists = input.currentSnapshot?.lists ?? [];
+  const nextLists = [
+    ...currentLists.filter((existing) => existing.id !== input.list.id),
+    input.list,
+  ];
+
+  const expectedListIds = input.expectedListIds?.filter(Boolean);
+  const normalizedLists =
+    expectedListIds && expectedListIds.length > 0
+      ? nextLists.filter((list) => expectedListIds.includes(list.id))
+      : nextLists;
+
+  return {
+    syncedAt: input.syncedAt,
+    source: input.source,
+    lists: normalizedLists,
   };
 }
 

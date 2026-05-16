@@ -4,6 +4,7 @@ import type {
   ExchangeKakaoCodeInput,
   MockAuthInput,
   PullSnapshotResult,
+  PushSnapshotListInput,
   PushSnapshotInput,
   PushSnapshotResult,
   UpdateLocalNoteInput,
@@ -46,6 +47,20 @@ export class HttpCloudSyncClient implements CloudSyncClient {
 
   async pushSnapshot(input: PushSnapshotInput): Promise<PushSnapshotResult> {
     const response = await this.request(`${this.baseUrl}/api/snapshot`, {
+      method: "PUT",
+      headers: withAuthHeaders(this.getAuthToken, {
+        "Content-Type": "application/json",
+      }),
+      body: JSON.stringify(input),
+    });
+
+    return parseJson<PushSnapshotResult>(response);
+  }
+
+  async pushSnapshotList(
+    input: PushSnapshotListInput,
+  ): Promise<PushSnapshotResult> {
+    const response = await this.request(`${this.baseUrl}/api/snapshot/list`, {
       method: "PUT",
       headers: withAuthHeaders(this.getAuthToken, {
         "Content-Type": "application/json",

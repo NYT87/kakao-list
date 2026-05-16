@@ -1,5 +1,43 @@
 # Progress Log
 
+## Session: 2026-05-16 (Chunked List-by-List Sync)
+
+### Phase 1: Requirements & Discovery
+- **Status:** complete
+- Actions taken:
+  - Inspected the whole-snapshot sync contract in the shared domain package, HTTP sync client, and server endpoints.
+  - Confirmed the server persists a single latest-snapshot blob, so chunking had to be implemented as server-side merge rather than table-level list inserts.
+  - Identified list-deletion handling as the main semantic risk of naive per-list upserts.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/task_plan.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+### Phase 2: Implementation
+- **Status:** complete
+- Actions taken:
+  - Added `PushSnapshotListInput` and `pushSnapshotList(...)` to the shared sync contract/client.
+  - Added `PUT /api/snapshot/list` on the server to merge one list into the current snapshot and optionally prune stale lists via `expectedListIds`.
+  - Updated the extension import flow to upload lists sequentially, with a whole-snapshot fallback for empty imports.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/packages/domain/src/index.ts`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/packages/sync/src/index.ts`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/server/src/index.ts`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/extension/src/PopupApp.tsx`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/task_plan.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+### Phase 3: Verification
+- **Status:** complete
+- Actions taken:
+  - Ran `pnpm --filter @kakao-lists/extension build` successfully.
+  - Ran `pnpm typecheck` successfully from the repo root.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/task_plan.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
 ## Session: 2026-05-16 (Import Local-First + Payload Limit)
 
 ### Phase 1: Requirements & Discovery

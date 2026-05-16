@@ -54,6 +54,14 @@ export interface PushSnapshotInput {
   snapshot: SyncSnapshot;
 }
 
+export interface PushSnapshotListInput {
+  deviceId: string;
+  list: FavoriteList;
+  syncedAt: string;
+  source: string;
+  expectedListIds?: string[];
+}
+
 export interface PushSnapshotResult {
   userId: string;
   deviceId: string;
@@ -85,6 +93,7 @@ export interface CloudSyncClient {
   createMockSession(input?: MockAuthInput): Promise<CloudSession>;
   syncFromKakao(): Promise<PushSnapshotResult>;
   pushSnapshot(input: PushSnapshotInput): Promise<PushSnapshotResult>;
+  pushSnapshotList(input: PushSnapshotListInput): Promise<PushSnapshotResult>;
   pullLatestSnapshot(): Promise<PullSnapshotResult>;
   updateLocalNote(input: UpdateLocalNoteInput): Promise<PushSnapshotResult>;
 }

@@ -253,6 +253,7 @@ export default function PopupApp() {
         await repository.saveSnapshot(localSnapshot);
         setLists(localSnapshot.lists);
         setLastSyncedAt(localSnapshot.syncedAt);
+        setServerVersion(null);
         setStatus("ready");
         setMessage(
           `Imported ${extracted.placeCount} places across ${extracted.folderCount} lists from ${
@@ -261,22 +262,44 @@ export default function PopupApp() {
         );
 
         try {
-          const result = await activeCloudSync.pushSnapshot({
-            deviceId: activeDeviceId,
-            snapshot: localSnapshot,
-          });
+          const expectedListIds = localSnapshot.lists.map((list) => list.id);
+          let finalResult: Awaited<
+            ReturnType<HttpCloudSyncClient["pushSnapshotList"]>
+          > | null = null;
 
-          const storedSnapshot = sanitizeSnapshot(result.snapshot);
+          if (localSnapshot.lists.length === 0) {
+            finalResult = await activeCloudSync.pushSnapshot({
+              deviceId: activeDeviceId,
+              snapshot: localSnapshot,
+            });
+          } else {
+            for (const [index, list] of localSnapshot.lists.entries()) {
+              const isLastList = index === localSnapshot.lists.length - 1;
+              finalResult = await activeCloudSync.pushSnapshotList({
+                deviceId: activeDeviceId,
+                list,
+                syncedAt: localSnapshot.syncedAt,
+                source: localSnapshot.source,
+                expectedListIds: isLastList ? expectedListIds : undefined,
+              });
+            }
+          }
+
+          if (!finalResult) {
+            throw new Error("Snapshot sync did not return a server result.");
+          }
+
+          const storedSnapshot = sanitizeSnapshot(finalResult.snapshot);
           await repository.saveSnapshot(storedSnapshot);
           setLists(storedSnapshot.lists);
           setLastSyncedAt(storedSnapshot.syncedAt);
-          setServerVersion(result.serverVersion);
-          writeLastKnownServerVersion(result.serverVersion);
+          setServerVersion(finalResult.serverVersion);
+          writeLastKnownServerVersion(finalResult.serverVersion);
           setStatus("ready");
           setMessage(
             `Imported ${extracted.placeCount} places across ${extracted.folderCount} lists from ${
               extracted.tabTitle ?? "Kakao Maps"
-            } and synced version ${result.serverVersion}.`,
+            } and synced version ${finalResult.serverVersion}.`,
           );
         } catch (error) {
           setStatus("error");
