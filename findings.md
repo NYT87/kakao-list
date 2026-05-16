@@ -1,5 +1,38 @@
 # Findings & Decisions
 
+## Extension Kakao Sign-In Persistence: 2026-05-16
+
+### Key Findings
+- The extension popup was calling `chrome.identity.launchWebAuthFlow(...)` directly from `PopupApp.tsx`.
+- During external OAuth consent, Chrome can close or tear down the popup UI process when focus leaves the popup.
+- The old implementation stored the returned cloud session only in popup `window.localStorage`, so if the popup died before the callback completed, the sign-in appeared to succeed externally but the extension reopened in a signed-out state.
+- `chrome.storage.local` is the right shared store for the cloud session because it is accessible from the background worker, popup, and options page.
+
+### Technical Decisions
+| Decision | Rationale |
+|----------|-----------|
+| Handle Kakao and mock sign-in through background message passing | The background worker can finish auth even if the popup closes |
+| Persist the cloud session in `chrome.storage.local` | The next popup open can rehydrate signed-in state from extension storage |
+| Rehydrate popup/options state asynchronously on mount | Shared extension storage is async, unlike page-local `localStorage` |
+
+## Extension Release Automation: 2026-05-16
+
+### Key Findings
+- The repo currently has no `.github/workflows` directory or release automation.
+- The repo already has a working local bundling command: `pnpm bundle:extension`.
+- GitHub documents that the `release` event with `types: [published]` is the reliable trigger if you want workflows to run when stable or pre-releases are published.
+- GitHub documents that GitHub CLI is preinstalled on GitHub-hosted runners and that workflow steps using it should pass `GH_TOKEN`.
+- GitHub documents that workflow token permissions should be narrowed explicitly with the `permissions` key.
+
+### Technical Decisions
+| Decision | Rationale |
+|----------|-----------|
+| Use a dedicated release workflow instead of embedding upload logic elsewhere | Release asset publishing is a separate concern from regular CI |
+| Use `actions/checkout` and `actions/setup-node` plus `corepack` | Keeps the workflow on standard GitHub-supported building blocks |
+| Upload the zip with `gh release upload ... --clobber` | Handles retries and manual reruns cleanly without requiring asset deletion first |
+| Grant only `contents: write` at the job level | Release asset upload needs repository contents write access and does not need broader scopes |
+| Read `EXTENSION_PUBLIC_KEY` from a repository Actions variable | The value is public, not secret, and release bundles need a stable extension ID if Kakao redirect URIs must remain fixed |
+
 ## Lint Cleanup: 2026-05-16
 
 ### Key Findings

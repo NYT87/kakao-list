@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CloudSession, SyncStatus } from "@kakao-lists/domain";
 import { LocalStorageFavoriteListsRepository } from "@kakao-lists/storage";
 import { HttpCloudSyncClient } from "@kakao-lists/sync";
+import { readStoredCloudSession } from "./cloudSession";
 import {
   readThemePreference,
   type ThemePreference,
@@ -15,9 +16,7 @@ const syncServerUrl = import.meta.env.VITE_SYNC_SERVER_URL ?? "";
 const debugMode = __DEBUG_MODE__;
 
 export default function OptionsApp() {
-  const [cloudSession] = useState<CloudSession | null>(() =>
-    readCloudSession(),
-  );
+  const [cloudSession, setCloudSession] = useState<CloudSession | null>(null);
   const [status, setStatus] = useState<SyncStatus>("idle");
   const [message, setMessage] = useState(
     "Use these controls to manage the extension snapshot cache and session.",
@@ -39,16 +38,18 @@ export default function OptionsApp() {
     return syncServerUrl
       ? new HttpCloudSyncClient(
           syncServerUrl,
-          () => readCloudSession()?.token ?? null,
+          () => cloudSession?.token ?? null,
         )
       : null;
-  }, []);
+  }, [cloudSession]);
 
   const hydrateLocalState = useCallback(async () => {
-    const [lists, syncedAt] = await Promise.all([
+    const [lists, syncedAt, storedSession] = await Promise.all([
       repository.loadLists(),
       repository.getLastSyncedAt(),
+      readStoredCloudSession(),
     ]);
+    setCloudSession(storedSession);
     setStoredListCount(lists.length);
     setLastSyncedAt(syncedAt);
     setServerVersion(readLastKnownServerVersion());
@@ -234,37 +235,6 @@ export default function OptionsApp() {
       ) : null}
     </main>
   );
-}
-
-function readCloudSession(): CloudSession | null {
-  const raw = window.localStorage.getItem(
-    "kakao-lists:extension-cloud-session",
-  );
-  if (!raw) {
-    return null;
-  }
-
-  try {
-    const parsed = JSON.parse(raw) as CloudSession;
-    if (!parsed?.token || !parsed?.expiresAt || !parsed?.user?.id) {
-      clearCloudSession();
-      return null;
-    }
-
-    if (Date.parse(parsed.expiresAt) <= Date.now()) {
-      clearCloudSession();
-      return null;
-    }
-
-    return parsed;
-  } catch {
-    clearCloudSession();
-    return null;
-  }
-}
-
-function clearCloudSession() {
-  window.localStorage.removeItem("kakao-lists:extension-cloud-session");
 }
 
 function clearLocalExtensionData() {

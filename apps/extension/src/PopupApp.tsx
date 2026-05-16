@@ -4,9 +4,14 @@ import type {
   FavoriteList,
   SyncStatus,
 } from "@kakao-lists/domain";
-import { buildKakaoAuthorizeUrl } from "@kakao-lists/kakao";
 import { LocalStorageFavoriteListsRepository } from "@kakao-lists/storage";
 import { HttpCloudSyncClient } from "@kakao-lists/sync";
+import {
+  beginKakaoSignIn,
+  beginMockSignIn,
+  clearCloudSessionInBackground,
+} from "./authBridge";
+import { readStoredCloudSession } from "./cloudSession";
 import { extractSnapshotFromKakaoMapsTab } from "./kakaoMapsExtractor";
 import {
   readThemePreference,
@@ -19,7 +24,6 @@ const repository = new LocalStorageFavoriteListsRepository(
 );
 const syncServerUrl = import.meta.env.VITE_SYNC_SERVER_URL ?? "";
 const kakaoClientId = import.meta.env.VITE_KAKAO_REST_API_KEY ?? "";
-const kakaoScope = import.meta.env.VITE_KAKAO_SCOPE?.trim() ?? "";
 const pwaBaseUrl = import.meta.env.VITE_PWA_BASE_URL ?? "http://localhost:5173";
 const mockAuthEnabled = import.meta.env.VITE_ENABLE_MOCK_AUTH === "true";
 const debugMode = __DEBUG_MODE__;
@@ -37,9 +41,7 @@ interface ActiveTabContext {
 type PopupView = "main" | "settings";
 
 export default function PopupApp() {
-  const [cloudSession, setCloudSession] = useState<CloudSession | null>(() =>
-    readCloudSession(),
-  );
+  const [cloudSession, setCloudSession] = useState<CloudSession | null>(null);
   const [lists, setLists] = useState<FavoriteList[]>([]);
   const [status, setStatus] = useState<SyncStatus>("idle");
   const [message, setMessage] = useState(
@@ -68,10 +70,10 @@ export default function PopupApp() {
     return syncServerUrl
       ? new HttpCloudSyncClient(
           syncServerUrl,
-          () => readCloudSession()?.token ?? null,
+          () => cloudSession?.token ?? null,
         )
       : null;
-  }, []);
+  }, [cloudSession]);
 
   const placeMemberships = useMemo(() => {
     if (activeTab.kind !== "place" || !activeTab.placeKey) {
@@ -93,12 +95,14 @@ export default function PopupApp() {
   }, [activeTab, lists]);
 
   const hydrate = useCallback(async () => {
-    const [savedLists, syncedAt] = await Promise.all([
+    const [savedLists, syncedAt, storedSession] = await Promise.all([
       repository.loadLists(),
       repository.getLastSyncedAt(),
+      readStoredCloudSession(),
     ]);
     setLists(filterVisibleLists(savedLists));
     setLastSyncedAt(syncedAt);
+    setCloudSession(storedSession);
     setDebugLines((current) =>
       current.length > 0
         ? current
@@ -166,41 +170,13 @@ export default function PopupApp() {
       return;
     }
 
-    const authUrl = buildKakaoAuthorizeUrl({
-      clientId: kakaoClientId,
-      redirectUri,
-      scope: kakaoScope,
-      state: "kakao-lists-extension",
-    });
-
     setBusyAction("sign-in");
     setStatus("syncing");
     setMessage("Opening Kakao sign-in...");
     setDebugLines([`auth-mode:real`, `redirect-uri:${redirectUri}`]);
 
     try {
-      const callbackUrl = await chrome.identity.launchWebAuthFlow({
-        interactive: true,
-        url: authUrl,
-      });
-
-      if (!callbackUrl) {
-        throw new Error("Kakao sign-in did not return a callback URL.");
-      }
-
-      const code = new URL(callbackUrl).searchParams.get("code");
-      if (!code) {
-        throw new Error(
-          "No Kakao authorization code was returned to the extension.",
-        );
-      }
-
-      const session = await cloudSync.exchangeKakaoCode({
-        code,
-        redirectUri,
-      });
-
-      writeCloudSession(session);
+      const session = await beginKakaoSignIn();
       setCloudSession(session);
       setStatus("ready");
       setMessage(
@@ -235,8 +211,7 @@ export default function PopupApp() {
     setDebugLines(["auth-mode:mock"]);
 
     try {
-      const session = await cloudSync.createMockSession();
-      writeCloudSession(session);
+      const session = await beginMockSignIn();
       setCloudSession(session);
       setStatus("ready");
       setMessage(
@@ -567,8 +542,8 @@ export default function PopupApp() {
     setView("main");
   }
 
-  function clearSession() {
-    clearCloudSession();
+  async function clearSession() {
+    await clearCloudSessionInBackground();
     setCloudSession(null);
     setLists([]);
     setLastSyncedAt(null);
@@ -814,7 +789,7 @@ export default function PopupApp() {
               <button
                 className="button danger"
                 disabled={isBusy}
-                onClick={clearSession}
+                onClick={() => void clearSession()}
                 type="button"
               >
                 Sign Out
@@ -1220,44 +1195,6 @@ function clearLocalExtensionData() {
   window.localStorage.removeItem("kakao-lists:extension");
   window.localStorage.removeItem("kakao-lists:extension-device-id");
   window.localStorage.removeItem("kakao-lists:extension-server-version");
-}
-
-function readCloudSession(): CloudSession | null {
-  const raw = window.localStorage.getItem(
-    "kakao-lists:extension-cloud-session",
-  );
-  if (!raw) {
-    return null;
-  }
-
-  try {
-    const parsed = JSON.parse(raw) as CloudSession;
-    if (!parsed?.token || !parsed?.expiresAt || !parsed?.user?.id) {
-      clearCloudSession();
-      return null;
-    }
-
-    if (Date.parse(parsed.expiresAt) <= Date.now()) {
-      clearCloudSession();
-      return null;
-    }
-
-    return parsed;
-  } catch {
-    clearCloudSession();
-    return null;
-  }
-}
-
-function writeCloudSession(session: CloudSession) {
-  window.localStorage.setItem(
-    "kakao-lists:extension-cloud-session",
-    JSON.stringify(session),
-  );
-}
-
-function clearCloudSession() {
-  window.localStorage.removeItem("kakao-lists:extension-cloud-session");
 }
 
 function writeLastKnownServerVersion(serverVersion: number | null) {

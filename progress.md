@@ -1,5 +1,83 @@
 # Progress Log
 
+## Session: 2026-05-16 (Extension OAuth Persistence)
+
+### Phase 1: Requirements & Discovery
+- **Status:** complete
+- Actions taken:
+  - Inspected the extension popup sign-in flow and the background worker.
+  - Confirmed that `launchWebAuthFlow` was running inside the popup and that session persistence happened only in popup `localStorage`.
+  - Identified popup teardown during external consent as the likely reason the user returned to a still-signed-out popup.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/task_plan.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+### Phase 2: Implementation
+- **Status:** complete
+- Actions taken:
+  - Added a background auth bridge for real and mock sign-in.
+  - Moved cloud-session persistence to `chrome.storage.local`.
+  - Updated the popup to request sign-in through the background worker and rehydrate from shared storage.
+  - Updated the options page to read the cloud session from shared storage as well.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/extension/src/background.ts`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/extension/src/authBridge.ts`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/extension/src/cloudSession.ts`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/extension/src/PopupApp.tsx`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/extension/src/OptionsApp.tsx`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/task_plan.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+### Phase 3: Verification
+- **Status:** complete
+- Actions taken:
+  - Ran `pnpm --filter @kakao-lists/extension build` successfully.
+  - Ran `pnpm --filter @kakao-lists/extension exec tsc --noEmit` successfully.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/task_plan.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+## Session: 2026-05-16 (Extension Release Asset Automation)
+
+### Phase 1: Requirements & Discovery
+- **Status:** complete
+- Actions taken:
+  - Confirmed the repo had no existing GitHub Actions workflows.
+  - Reviewed the current extension bundling command and release-upload requirements.
+  - Checked GitHub’s official docs for the `release` event, GitHub CLI in workflows, and `GITHUB_TOKEN` permissions.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/task_plan.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+### Phase 2: Implementation
+- **Status:** complete
+- Actions taken:
+  - Added a GitHub Actions workflow to build the extension zip on `release.published`.
+  - Added manual `workflow_dispatch` support with a `tag_name` input for upload retries.
+  - Reused `pnpm bundle:extension` and uploaded the resulting zip to the target GitHub release with `gh release upload`.
+  - Wired `EXTENSION_PUBLIC_KEY` into the workflow through a repository Actions variable so release bundles can keep a stable extension ID.
+  - Documented the workflow in the README.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/.github/workflows/release-extension.yml`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/README.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/task_plan.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+### Phase 3: Verification
+- **Status:** complete
+- Actions taken:
+  - Inspected the generated workflow YAML and README release-automation docs.
+  - Ran `git diff --check` successfully to confirm there are no whitespace or patch-format issues.
+  - Confirmed the workflow uses `release.published`, `workflow_dispatch`, `contents: write`, and `gh release upload` as intended.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/task_plan.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
 ## Session: 2026-05-16 (`pnpm lint:fix` Cleanup)
 
 ### Phase 1: Requirements & Discovery

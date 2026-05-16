@@ -10,14 +10,14 @@ const zipPath = path.join(extensionDir, "kakao-lists-extension.zip");
 
 execFileSync("pnpm", ["--filter", "@kakao-lists/extension", "build"], {
   cwd: repoRoot,
-  stdio: "inherit"
+  stdio: "inherit",
 });
 
 fs.rmSync(zipPath, { force: true });
 
 execFileSync("zip", ["-r", path.basename(zipPath), "dist"], {
   cwd: extensionDir,
-  stdio: "inherit"
+  stdio: "inherit",
 });
 
 console.info(`Created extension bundle at ${zipPath}`);
