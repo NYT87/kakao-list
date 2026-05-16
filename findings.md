@@ -1,5 +1,20 @@
 # Findings & Decisions
 
+## Extension Import + Server Payload Limit: 2026-05-16
+
+### Key Findings
+- The extension import flow currently saves the imported snapshot only after `pushSnapshot(...)` succeeds.
+- If the server rejects the upload, the extension loses the imported result from that attempt and the UI shows only a generic import failure.
+- The server currently uses `express.json({ limit: "1mb" })`.
+- The `PayloadTooLargeError` stack shown by the user is from Express/body-parser itself, so the immediate failure is app-level rather than a platform-level Vercel limit.
+
+### Technical Decisions
+| Decision | Rationale |
+|----------|-----------|
+| Save the extracted snapshot into extension storage before attempting the server upload | Prevents user-visible data loss when the remote sync step fails |
+| Include the server error in a partial-success message | Makes it clear that local import worked but cloud sync did not |
+| Replace the fixed `1mb` body limit with a larger configurable value | Imported Kakao list snapshots can exceed the original development-time ceiling |
+
 ## Extension Kakao Sign-In Persistence: 2026-05-16
 
 ### Key Findings

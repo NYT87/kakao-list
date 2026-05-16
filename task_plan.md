@@ -1,47 +1,47 @@
-# Task Plan: Extension Kakao Sign-In Persistence
+# Task Plan: Extension Import Local-First + Server Payload Limit
 
 ## Goal
-Fix extension Kakao sign-in so the session persists even when the popup closes during the external OAuth consent flow.
+Make extension imports persist locally even when server sync fails, and raise the server JSON body limit so larger snapshots can be uploaded.
 
 ## Current Phase
 Phase 3
 
 ## Phases
 ### Phase 1: Requirements & Discovery
-- [x] Trace the popup-based Kakao sign-in flow
-- [x] Confirm whether popup teardown can interrupt session persistence
+- [x] Inspect the extension import path and current server request body limit
+- [x] Confirm why imported lists disappear when server sync fails
 - [x] Record the root cause in findings.md
 - **Status:** complete
 
 ### Phase 2: Implementation
-- [x] Move sign-in orchestration to the background worker
-- [x] Persist the cloud session in `chrome.storage.local`
-- [x] Rehydrate popup and options state from shared extension storage
+- [x] Save imported snapshots locally before attempting the server push
+- [x] Surface a clear partial-success error when local import succeeds but server sync fails
+- [x] Raise or parameterize the server JSON body limit
 - **Status:** complete
 
 ### Phase 3: Verification
-- [x] Build the extension
-- [x] Run extension TypeScript verification
-- [x] Update the planning files with the final state
+- [x] Build and typecheck the extension
+- [x] Verify the server code still typechecks through the repo build
+- [x] Update planning files with the final state
 - **Status:** complete
 
 ## Key Questions
-1. Is the Kakao popup flow itself failing, or is the popup UI process disappearing before it stores the session?
-2. Where should the auth callback and session persistence live so popup teardown does not matter?
-3. Which extension storage surface should hold the shared cloud session?
+1. Where in the import flow should local persistence happen so server failures do not discard the import?
+2. What message should the user see when import succeeds locally but sync fails remotely?
+3. Is the payload error coming from Vercel itself or from the app’s own `express.json` limit?
 
 ## Decisions Made
 | Decision | Rationale |
 |----------|-----------|
-| Move OAuth orchestration into `background.ts` | The background worker survives popup closure better than the popup page |
-| Store the cloud session in `chrome.storage.local` | Both popup and options can rehydrate from shared extension storage |
-| Keep list snapshot/device-id storage unchanged for now | The immediate bug is auth persistence, not general local data architecture |
+| Treat import as local-first, then remote-sync | The extension should remain useful even when the server is down or rejects a large payload |
+| Keep the UI in an error state if remote sync fails after local save | The user should know the server copy is stale even though local data exists |
+| Increase the server body limit via a configurable setting | The current hardcoded `1mb` limit is too low for realistic imported snapshots |
 
 ## Errors Encountered
 | Error | Attempt | Resolution |
 |-------|---------|------------|
-| Initial patch collided with drift in popup/options helper sections | 1 | Re-read the live file tails and applied smaller targeted patches |
+| Existing `task_plan.md` was stale for the previous auth-persistence task | 1 | Replaced it with a plan for the import/sync failure work |
 
 ## Notes
 - Re-read this plan before major decisions.
-- Keep findings current as extension auth behavior is clarified.
+- Keep findings current as server upload behavior is clarified.

@@ -1,5 +1,41 @@
 # Progress Log
 
+## Session: 2026-05-16 (Import Local-First + Payload Limit)
+
+### Phase 1: Requirements & Discovery
+- **Status:** complete
+- Actions taken:
+  - Inspected the extension import flow and verified that local snapshot persistence happened only after a successful server push.
+  - Inspected the server bootstrap and confirmed `express.json({ limit: "1mb" })` was the direct source of the reported `PayloadTooLargeError`.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/task_plan.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+### Phase 2: Implementation
+- **Status:** complete
+- Actions taken:
+  - Changed the extension import flow to save the imported snapshot locally before attempting remote sync.
+  - Added a partial-success message path so local import stays visible when server upload fails.
+  - Replaced the hardcoded server JSON body limit with `JSON_BODY_LIMIT`, defaulting to `10mb`.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/extension/src/PopupApp.tsx`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/server/src/index.ts`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/task_plan.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+### Phase 3: Verification
+- **Status:** complete
+- Actions taken:
+  - Ran `pnpm --filter @kakao-lists/extension build` successfully.
+  - Ran `pnpm --filter @kakao-lists/extension exec tsc --noEmit` successfully.
+  - Ran `pnpm typecheck` successfully from the repo root.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/task_plan.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
 ## Session: 2026-05-16 (Extension OAuth Persistence)
 
 ### Phase 1: Requirements & Discovery

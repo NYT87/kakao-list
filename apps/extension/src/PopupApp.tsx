@@ -249,24 +249,48 @@ export default function PopupApp() {
       const extracted = await extractSnapshotFromKakaoMapsTab();
       if (extracted) {
         setDebugLines(extracted.debug);
-        const pushedSnapshot = sanitizeSnapshot(extracted.snapshot);
-        const result = await activeCloudSync.pushSnapshot({
-          deviceId: activeDeviceId,
-          snapshot: pushedSnapshot,
-        });
-
-        const storedSnapshot = sanitizeSnapshot(result.snapshot);
-        await repository.saveSnapshot(storedSnapshot);
-        setLists(storedSnapshot.lists);
-        setLastSyncedAt(storedSnapshot.syncedAt);
-        setServerVersion(result.serverVersion);
-        writeLastKnownServerVersion(result.serverVersion);
+        const localSnapshot = sanitizeSnapshot(extracted.snapshot);
+        await repository.saveSnapshot(localSnapshot);
+        setLists(localSnapshot.lists);
+        setLastSyncedAt(localSnapshot.syncedAt);
         setStatus("ready");
         setMessage(
           `Imported ${extracted.placeCount} places across ${extracted.folderCount} lists from ${
             extracted.tabTitle ?? "Kakao Maps"
-          } and synced version ${result.serverVersion}.`,
+          }. Syncing to the server...`,
         );
+
+        try {
+          const result = await activeCloudSync.pushSnapshot({
+            deviceId: activeDeviceId,
+            snapshot: localSnapshot,
+          });
+
+          const storedSnapshot = sanitizeSnapshot(result.snapshot);
+          await repository.saveSnapshot(storedSnapshot);
+          setLists(storedSnapshot.lists);
+          setLastSyncedAt(storedSnapshot.syncedAt);
+          setServerVersion(result.serverVersion);
+          writeLastKnownServerVersion(result.serverVersion);
+          setStatus("ready");
+          setMessage(
+            `Imported ${extracted.placeCount} places across ${extracted.folderCount} lists from ${
+              extracted.tabTitle ?? "Kakao Maps"
+            } and synced version ${result.serverVersion}.`,
+          );
+        } catch (error) {
+          setStatus("error");
+          setDebugLines((current) => [
+            ...current,
+            `server-sync-error:${error instanceof Error ? error.message : "Server sync failed after local import."}`,
+          ]);
+          setMessage(
+            error instanceof Error
+              ? `Imported locally, but failed to sync to the server: ${error.message}`
+              : "Imported locally, but failed to sync to the server.",
+          );
+        }
+
         return;
       }
 
