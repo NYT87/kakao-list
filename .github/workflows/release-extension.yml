@@ -1,0 +1,45 @@
+name: Release Extension Bundle
+
+on:
+  release:
+    types:
+      - published
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: Release tag to upload the extension asset to
+        required: true
+        type: string
+
+jobs:
+  bundle-extension:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.tag_name }}
+      EXTENSION_PUBLIC_KEY: ${{ vars.EXTENSION_PUBLIC_KEY }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.12.0
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build extension bundle
+        run: pnpm bundle:extension
+
+      - name: Upload extension zip to release
+        run: gh release upload "$RELEASE_TAG" apps/extension/kakao-lists-extension.zip --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
