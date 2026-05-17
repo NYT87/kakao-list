@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
   CloudSession,
   FavoriteList,
+  PushSnapshotResult,
   SyncStatus,
 } from "@kakao-lists/domain";
 import { LocalStorageFavoriteListsRepository } from "@kakao-lists/storage";
@@ -14,6 +15,7 @@ import {
 import { readStoredCloudSession } from "./cloudSession";
 import {
   extractSnapshotFromKakaoMapsTab,
+  resolveKakaoFavoriteForPlace,
   updateKakaoFavoriteNote,
 } from "./kakaoMapsExtractor";
 import {
@@ -69,6 +71,9 @@ export default function PopupApp() {
     kind: "default",
     tabId: null,
   });
+  const [lastResolvedKakaoFavorite, setLastResolvedKakaoFavorite] = useState<
+    unknown | null
+  >(null);
   const deviceId = useMemo(() => getOrCreateDeviceId(), []);
   const redirectUri = useMemo(() => getExtensionRedirectUri(), []);
   const isBusy = busyAction !== null;
@@ -534,16 +539,35 @@ export default function PopupApp() {
 
     const membershipKey = getMembershipKey(listId, itemId);
     const kakaoNote = kakaoNoteDrafts[membershipKey] ?? "";
+    const folderId =
+      match.item.kakaoFolderId ?? extractFolderIdFromListId(listId);
+    if (folderId === null) {
+      setStatus("error");
+      setMessage(
+        "The saved list id could not be mapped back to a Kakao folder.",
+      );
+      return;
+    }
     setBusyAction(`save-kakao-note:${membershipKey}`);
     setStatus("syncing");
     setMessage("Saving the Kakao note to Kakao Maps...");
 
     try {
-      const kakaoResult = await updateKakaoFavoriteNote({
-        seq: match.item.id,
+      const liveFavorite = await resolveKakaoFavoriteForPlace({
+        folderId,
+        placeKey: match.item.placeKey,
         display1: match.item.title,
-        display2: match.item.subtitle ?? "",
-        color: match.item.color ?? "",
+        fallbackSeq: match.item.id,
+      });
+      setLastResolvedKakaoFavorite(liveFavorite);
+
+      const kakaoResult = await updateKakaoFavoriteNote({
+        folderId: liveFavorite.folderId ?? folderId,
+        seq: liveFavorite.seq,
+        placeKey: liveFavorite.key ?? match.item.placeKey,
+        display1: liveFavorite.display1,
+        display2: liveFavorite.display2,
+        color: liveFavorite.color,
         memo: kakaoNote,
       });
 
@@ -594,12 +618,28 @@ export default function PopupApp() {
           );
         }
 
-        const result = await cloudSync.pushSnapshotList({
-          deviceId,
-          list: updatedList,
-          syncedAt: updatedSnapshot.syncedAt,
-          source: updatedSnapshot.source,
-        });
+        let result: PushSnapshotResult;
+        try {
+          result = await cloudSync.pushSnapshotList({
+            deviceId,
+            list: updatedList,
+            syncedAt: updatedSnapshot.syncedAt,
+            source: updatedSnapshot.source,
+          });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "";
+          if (
+            message.includes("Cannot PUT /api/snapshot/list") ||
+            message.includes("404")
+          ) {
+            result = await cloudSync.pushSnapshot({
+              deviceId,
+              snapshot: updatedSnapshot,
+            });
+          } else {
+            throw error;
+          }
+        }
 
         const snapshot = sanitizeSnapshot(result.snapshot);
         await repository.saveSnapshot(snapshot);
@@ -877,6 +917,17 @@ export default function PopupApp() {
             >
               <span aria-hidden="true">←</span>
             </button>
+          ) : activeTab.kind === "place" ? (
+            <button
+              className="icon-button"
+              aria-label="Import from Kakao Maps"
+              disabled={isBusy}
+              onClick={() => void importFromKakaoMaps()}
+              title="Import from Kakao Maps"
+              type="button"
+            >
+              <span aria-hidden="true">↓</span>
+            </button>
           ) : null}
         </div>
         <div>
@@ -1027,6 +1078,9 @@ export default function PopupApp() {
               <span aria-hidden="true">↻</span>
             </button>
           </div>
+          <p aria-live="polite" className="small-copy" role="status">
+            {message}
+          </p>
           {placeMemberships.length === 0 ? (
             <p>
               That place is not present in the currently stored snapshot. Pull
@@ -1036,128 +1090,182 @@ export default function PopupApp() {
             <ul className="match-list">
               {placeMemberships.map(({ list, item }) => (
                 <li className="match-card" key={`${list.id}:${item.id}`}>
-                  <div className="match-head">
-                    <button
-                      className="match-title-link"
-                      onClick={() => void openStoredListInPwa(list.id)}
-                      aria-label={`Open ${list.name} in the PWA`}
-                      title={`Open ${list.name} in the PWA`}
-                      type="button"
-                    >
-                      {list.name}
-                    </button>
-                    <span>{list.creatorName ?? "Unknown creator"}</span>
-                  </div>
-                  <p>{item.subtitle ?? "No address summary stored."}</p>
-                  <div className="note-block">
-                    <label
-                      className="note-label"
-                      htmlFor={`kakao-note-${list.id}-${item.id}`}
-                    >
-                      Kakao note
-                    </label>
-                    <div className="editable-kakao-note-row">
-                      <input
-                        className="note-input"
-                        id={`kakao-note-${list.id}-${item.id}`}
-                        maxLength={KAKAO_NOTE_MAX_LENGTH}
-                        type="text"
-                        value={
-                          kakaoNoteDrafts[getMembershipKey(list.id, item.id)] ??
-                          ""
-                        }
-                        onChange={(event) =>
-                          setKakaoNoteDrafts((current) => ({
-                            ...current,
-                            [getMembershipKey(list.id, item.id)]:
-                              event.target.value,
-                          }))
-                        }
-                        placeholder={`Add or edit the Kakao note (${KAKAO_NOTE_MAX_LENGTH} max)`}
-                      />
-                      <button
-                        aria-label="Save Kakao note"
-                        className="icon-button match-action-icon"
-                        disabled={isBusy}
-                        onClick={() =>
-                          void savePlaceKakaoNote(list.id, item.id)
-                        }
-                        title="Save Kakao note"
-                        type="button"
-                      >
-                        <span aria-hidden="true">✎</span>
-                      </button>
-                      <button
-                        aria-label="Copy Kakao note"
-                        className="copy-note-button"
-                        disabled={
-                          (
-                            kakaoNoteDrafts[
-                              getMembershipKey(list.id, item.id)
-                            ] ?? ""
-                          ).length === 0
-                        }
-                        onClick={() =>
-                          void copyKakaoNote(
-                            kakaoNoteDrafts[
-                              getMembershipKey(list.id, item.id)
-                            ] ?? "",
-                          )
-                        }
-                        title="Copy Kakao note"
-                        type="button"
-                      >
-                        <CopyIcon />
-                      </button>
-                    </div>
-                  </div>
-                  <div className="note-block">
-                    <label
-                      className="note-label"
-                      htmlFor={`local-note-${list.id}-${item.id}`}
-                    >
-                      Local note
-                    </label>
-                    <input
-                      className="note-input"
-                      id={`local-note-${list.id}-${item.id}`}
-                      maxLength={500}
-                      type="text"
-                      value={
-                        localNoteDrafts[getMembershipKey(list.id, item.id)] ??
-                        ""
-                      }
-                      onChange={(event) =>
-                        setLocalNoteDrafts((current) => ({
-                          ...current,
-                          [getMembershipKey(list.id, item.id)]:
-                            event.target.value,
-                        }))
-                      }
-                      placeholder="Add your own note"
-                    />
-                  </div>
-                  <div className="match-actions">
-                    <button
-                      aria-label="Save local note"
-                      className="icon-button match-action-icon"
-                      disabled={isBusy}
-                      onClick={() => void savePlaceLocalNote(list.id, item.id)}
-                      title="Save local note"
-                      type="button"
-                    >
-                      <span aria-hidden="true">💾</span>
-                    </button>
-                    <button
-                      className="stored-list-action match-open-action"
-                      onClick={() => void openListInPwa(list.id, item.id)}
-                      aria-label={`Open ${list.name} in the PWA`}
-                      title={`Open ${list.name} in the PWA`}
-                      type="button"
-                    >
-                      <span aria-hidden="true">→</span>
-                    </button>
-                  </div>
+                  {(() => {
+                    const canEditKakao = canEditKakaoNote(list, cloudSession);
+
+                    return (
+                      <>
+                        <div className="match-head">
+                          <button
+                            className="match-title-link"
+                            onClick={() => void openStoredListInPwa(list.id)}
+                            aria-label={`Open ${list.name} in the PWA`}
+                            title={`Open ${list.name} in the PWA`}
+                            type="button"
+                          >
+                            {list.name}
+                          </button>
+                          <span>{list.creatorName ?? "Unknown creator"}</span>
+                        </div>
+                        <p>{item.subtitle ?? "No address summary stored."}</p>
+                        <div className="note-block">
+                          <label
+                            className="note-label"
+                            htmlFor={`kakao-note-${list.id}-${item.id}`}
+                          >
+                            Kakao note
+                          </label>
+                          <div className="editable-kakao-note-row">
+                            <input
+                              className="note-input"
+                              disabled={!canEditKakao || isBusy}
+                              id={`kakao-note-${list.id}-${item.id}`}
+                              maxLength={KAKAO_NOTE_MAX_LENGTH}
+                              type="text"
+                              value={
+                                kakaoNoteDrafts[
+                                  getMembershipKey(list.id, item.id)
+                                ] ?? ""
+                              }
+                              onChange={(event) =>
+                                setKakaoNoteDrafts((current) => ({
+                                  ...current,
+                                  [getMembershipKey(list.id, item.id)]:
+                                    event.target.value,
+                                }))
+                              }
+                              placeholder={
+                                canEditKakao
+                                  ? `Add or edit the Kakao note (${KAKAO_NOTE_MAX_LENGTH} max)`
+                                  : "Only the list creator can edit the Kakao note"
+                              }
+                            />
+                            <button
+                              aria-label="Save Kakao note"
+                              className="icon-button match-action-icon"
+                              disabled={!canEditKakao || isBusy}
+                              onClick={() =>
+                                void savePlaceKakaoNote(list.id, item.id)
+                              }
+                              title="Save Kakao note"
+                              type="button"
+                            >
+                              <span aria-hidden="true">✎</span>
+                            </button>
+                            <button
+                              aria-label="Copy Kakao note"
+                              className="copy-note-button"
+                              disabled={
+                                (
+                                  kakaoNoteDrafts[
+                                    getMembershipKey(list.id, item.id)
+                                  ] ?? ""
+                                ).length === 0
+                              }
+                              onClick={() =>
+                                void copyKakaoNote(
+                                  kakaoNoteDrafts[
+                                    getMembershipKey(list.id, item.id)
+                                  ] ?? "",
+                                )
+                              }
+                              title="Copy Kakao note"
+                              type="button"
+                            >
+                              <CopyIcon />
+                            </button>
+                          </div>
+                          {!canEditKakao ? (
+                            <p className="small-copy note-help">
+                              Only the creator of this saved list can edit the
+                              Kakao note.
+                            </p>
+                          ) : null}
+                          {debugMode ? (
+                            <div className="note-debug">
+                              <code>{`creator=${list.creatorName ?? "none"}`}</code>
+                              <code>{`user.id=${cloudSession?.user.id ?? "none"}`}</code>
+                              <code>{`user.nickname=${cloudSession?.user.nickname ?? "none"}`}</code>
+                              <code>{`item.seq=${item.id}`}</code>
+                              <code>{`item.placeKey=${item.placeKey ?? "none"}`}</code>
+                              <code>{`item.kakaoFolderId=${item.kakaoFolderId ?? "none"}`}</code>
+                              <code>{`canEdit=${String(canEditKakao)}`}</code>
+                              <pre className="note-debug-json">
+                                <code>
+                                  {JSON.stringify(activeTab, null, 2)}
+                                </code>
+                              </pre>
+                              <pre className="note-debug-json">
+                                <code>{JSON.stringify(list, null, 2)}</code>
+                              </pre>
+                              <pre className="note-debug-json">
+                                <code>{JSON.stringify(item, null, 2)}</code>
+                              </pre>
+                              <pre className="note-debug-json">
+                                <code>
+                                  {JSON.stringify(
+                                    lastResolvedKakaoFavorite,
+                                    null,
+                                    2,
+                                  )}
+                                </code>
+                              </pre>
+                            </div>
+                          ) : null}
+                        </div>
+                        <div className="note-block">
+                          <label
+                            className="note-label"
+                            htmlFor={`local-note-${list.id}-${item.id}`}
+                          >
+                            Local note
+                          </label>
+                          <input
+                            className="note-input"
+                            id={`local-note-${list.id}-${item.id}`}
+                            maxLength={500}
+                            type="text"
+                            value={
+                              localNoteDrafts[
+                                getMembershipKey(list.id, item.id)
+                              ] ?? ""
+                            }
+                            onChange={(event) =>
+                              setLocalNoteDrafts((current) => ({
+                                ...current,
+                                [getMembershipKey(list.id, item.id)]:
+                                  event.target.value,
+                              }))
+                            }
+                            placeholder="Add your own note"
+                          />
+                        </div>
+                        <div className="match-actions">
+                          <button
+                            aria-label="Save local note"
+                            className="icon-button match-action-icon"
+                            disabled={isBusy}
+                            onClick={() =>
+                              void savePlaceLocalNote(list.id, item.id)
+                            }
+                            title="Save local note"
+                            type="button"
+                          >
+                            <span aria-hidden="true">💾</span>
+                          </button>
+                          <button
+                            className="stored-list-action match-open-action"
+                            onClick={() => void openListInPwa(list.id, item.id)}
+                            aria-label={`Open ${list.name} in the PWA`}
+                            title={`Open ${list.name} in the PWA`}
+                            type="button"
+                          >
+                            <span aria-hidden="true">→</span>
+                          </button>
+                        </div>
+                      </>
+                    );
+                  })()}
                 </li>
               ))}
             </ul>
@@ -1287,6 +1395,16 @@ function extractPlaceKeyFromUrl(url: string): string | null {
 
 function extractPlaceKeyFromHref(href?: string): string | null {
   return href ? extractPlaceKeyFromUrl(href) : null;
+}
+
+function extractFolderIdFromListId(listId: string): number | null {
+  const prefix = "kakao-folder-";
+  if (!listId.startsWith(prefix)) {
+    return null;
+  }
+
+  const value = Number(listId.slice(prefix.length));
+  return Number.isFinite(value) ? value : null;
 }
 
 function isKakaoMapsPageUrl(url: string): boolean {
@@ -1482,6 +1600,46 @@ function formatDate(value: string | null) {
 function formatCountLabel(count: number, singular: string, plural: string) {
   const formattedCount = new Intl.NumberFormat(getUserLocale()).format(count);
   return `${formattedCount} ${count === 1 ? singular : plural}`;
+}
+
+function canEditKakaoNote(
+  list: FavoriteList,
+  cloudSession: CloudSession | null,
+) {
+  if (!cloudSession) {
+    return false;
+  }
+
+  const creator = list.creatorName?.trim();
+  if (!creator) {
+    return false;
+  }
+
+  const normalizedCreator = normalizeOwnershipToken(creator);
+  const nickname = cloudSession.user.nickname?.trim();
+  const normalizedNickname = normalizeOwnershipToken(nickname);
+  const userId = normalizeOwnershipToken(cloudSession.user.id.trim());
+
+  if (
+    normalizedCreator.length > 0 &&
+    (normalizedCreator === normalizedNickname ||
+      normalizedCreator === userId ||
+      normalizedCreator.includes(normalizedNickname) ||
+      normalizedNickname.includes(normalizedCreator))
+  ) {
+    return true;
+  }
+
+  return isLikelyOwnedKakaoMapsList(creator);
+}
+
+function isLikelyOwnedKakaoMapsList(creator: string) {
+  const normalized = creator.trim();
+  return normalized.startsWith("map:") || /^\d+$/.test(normalized);
+}
+
+function normalizeOwnershipToken(value?: string | null) {
+  return (value ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
 
 function getUserLocale() {

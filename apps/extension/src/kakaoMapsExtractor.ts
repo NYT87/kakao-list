@@ -62,7 +62,9 @@ export interface ExtractedKakaoMapsSnapshot {
 }
 
 interface KakaoNoteUpdateInput {
+  folderId: number;
   seq: string;
+  placeKey?: string;
   display1: string;
   display2: string;
   color: string;
@@ -75,6 +77,16 @@ interface KakaoNoteUpdateResult {
   tabUrl?: string;
   memo: string;
   debug: string[];
+}
+
+interface KakaoFavoriteLookupResult {
+  seq: string;
+  folderId?: number;
+  display1: string;
+  display2: string;
+  color: string;
+  memo: string;
+  key?: string;
 }
 
 interface KakaoNoteUpdateEnvelope {
@@ -185,9 +197,65 @@ export async function updateKakaoFavoriteNote(
     debug: [
       `note-update-tab:${tab.id}`,
       `note-update-page:${envelope.pageHref ?? tab.url ?? "unknown"}`,
+      `note-update-folder:${input.folderId}`,
       `note-update-seq:${input.seq}`,
       `note-update-memo-length:${(envelope.memo ?? input.memo).length}`,
     ],
+  };
+}
+
+export async function resolveKakaoFavoriteForPlace(input: {
+  folderId: number;
+  placeKey?: string;
+  display1: string;
+  fallbackSeq?: string;
+}): Promise<KakaoFavoriteLookupResult> {
+  const tab = await findKakaoMapsTab();
+  if (!tab?.id) {
+    throw new Error(
+      "Open Kakao Maps in a signed-in tab before saving a Kakao note.",
+    );
+  }
+
+  const [{ result }] = await chrome.scripting.executeScript({
+    target: {
+      tabId: tab.id,
+    },
+    world: "MAIN",
+    func: resolveKakaoFavoriteForPlaceInPage,
+    args: [input],
+  });
+
+  if (!result || typeof result !== "object") {
+    throw new Error(
+      "Kakao Maps did not return a saved-place record for note editing.",
+    );
+  }
+
+  const record = result as {
+    seq?: number | string;
+    display1?: string;
+    display2?: string;
+    color?: string;
+    memo?: string;
+    key?: string;
+  };
+
+  if (record.seq === undefined || record.seq === null) {
+    throw new Error("Kakao Maps did not return a valid saved-place seq.");
+  }
+
+  return {
+    seq: String(record.seq),
+    folderId:
+      typeof (record as { folderid?: unknown }).folderid === "number"
+        ? (record as { folderid: number }).folderid
+        : input.folderId,
+    display1: record.display1?.trim() || input.display1,
+    display2: record.display2?.trim() || "",
+    color: record.color?.trim() || "",
+    memo: record.memo?.trim() || "",
+    key: record.key?.trim() || undefined,
   };
 }
 
@@ -295,6 +363,8 @@ async function extractSnapshotInPageEnvelope(): Promise<PageExtractionEnvelope> 
         id: String(favorite.seq ?? favorite.key ?? `${folderId}-${index}`),
         title: favorite.display1?.trim() || `Saved place ${index + 1}`,
         placeKey: favorite.key?.trim() || undefined,
+        kakaoFolderId:
+          typeof favorite.folderid === "number" ? favorite.folderid : folderId,
         href: favorite.key
           ? `https://place.map.kakao.com/${favorite.key}`
           : undefined,
@@ -420,17 +490,22 @@ async function updateKakaoFavoriteNoteInPageEnvelope(
   input: KakaoNoteUpdateInput,
 ): Promise<KakaoNoteUpdateEnvelope> {
   try {
+    const numericSeq = Number(input.seq);
+    const seq =
+      Number.isFinite(numericSeq) && numericSeq > 0 ? numericSeq : input.seq;
+
     const response = await fetch(
       new URL("/favorite/update.json", window.location.origin).toString(),
       {
         method: "POST",
         credentials: "include",
         headers: {
-          Accept: "application/json",
+          Accept: "application/json, text/javascript, */*; q=0.01",
           "Content-Type": "application/json",
+          "X-Requested-With": "XMLHttpRequest",
         },
         body: JSON.stringify({
-          seq: input.seq,
+          seq,
           display1: input.display1,
           display2: input.display2,
           color: input.color,
@@ -478,10 +553,155 @@ async function updateKakaoFavoriteNoteInPageEnvelope(
       };
     }
 
+    const homeResponse = await fetch(
+      new URL("/favorite/home.json", window.location.origin).toString(),
+      {
+        method: "GET",
+        credentials: "include",
+        headers: {
+          Accept: "application/json, text/javascript, */*; q=0.01",
+          "X-Requested-With": "XMLHttpRequest",
+        },
+      },
+    );
+
+    if (!homeResponse.ok) {
+      const homeRaw = await homeResponse.text();
+      return {
+        ok: false,
+        error: `Kakao Maps home refresh failed with status ${homeResponse.status}`,
+        pageHref: window.location.href,
+        responsePreview: homeRaw.slice(0, 180),
+      };
+    }
+
+    const expectedMemo = input.memo.trim();
+    let lastVerifiedMemo = "";
+    let lastResponsePreview = "";
+
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      if (attempt > 0) {
+        await new Promise((resolve) => window.setTimeout(resolve, 350));
+      }
+
+      const verifyResponse = await fetch(
+        new URL(
+          `/favorite/mine/list?folderid=${encodeURIComponent(String(input.folderId))}`,
+          window.location.origin,
+        ).toString(),
+        {
+          credentials: "include",
+          headers: {
+            Accept: "application/json, text/javascript, */*; q=0.01",
+            "X-Requested-With": "XMLHttpRequest",
+          },
+        },
+      );
+
+      const verifyRaw = await verifyResponse.text();
+      lastResponsePreview = verifyRaw.slice(0, 180);
+
+      if (!verifyResponse.ok) {
+        return {
+          ok: false,
+          error: `Kakao Maps verification request failed with status ${verifyResponse.status}`,
+          pageHref: window.location.href,
+          responsePreview: lastResponsePreview,
+        };
+      }
+
+      let verifyParsed:
+        | {
+            favorites?: Array<{
+              seq?: number | string;
+              memo?: string;
+              key?: string;
+              display1?: string;
+            }>;
+          }
+        | Array<{
+            seq?: number | string;
+            memo?: string;
+            key?: string;
+            display1?: string;
+          }>
+        | null = null;
+
+      try {
+        verifyParsed = JSON.parse(verifyRaw) as
+          | {
+              favorites?: Array<{
+                seq?: number | string;
+                memo?: string;
+                key?: string;
+                display1?: string;
+              }>;
+            }
+          | Array<{
+              seq?: number | string;
+              memo?: string;
+              key?: string;
+              display1?: string;
+            }>;
+      } catch {
+        return {
+          ok: false,
+          error: "Kakao Maps verification returned non-JSON.",
+          pageHref: window.location.href,
+          responsePreview: lastResponsePreview,
+        };
+      }
+
+      const favorites = Array.isArray(verifyParsed)
+        ? verifyParsed
+        : Array.isArray(verifyParsed?.favorites)
+          ? verifyParsed.favorites
+          : null;
+
+      if (!favorites) {
+        return {
+          ok: false,
+          error:
+            "Kakao Maps verification returned an unexpected payload shape.",
+          pageHref: window.location.href,
+          responsePreview: lastResponsePreview,
+        };
+      }
+
+      const matchedFavorite = favorites.find(
+        (favorite) =>
+          String(favorite.seq ?? "") === input.seq ||
+          (input.placeKey
+            ? String(favorite.key ?? "") === input.placeKey
+            : false) ||
+          (favorite.display1?.trim() ?? "") === input.display1.trim(),
+      );
+
+      if (!matchedFavorite) {
+        return {
+          ok: false,
+          error:
+            "Kakao Maps verification could not find the updated saved place.",
+          pageHref: window.location.href,
+          responsePreview: lastResponsePreview,
+        };
+      }
+
+      lastVerifiedMemo = matchedFavorite.memo?.trim() ?? "";
+      if (lastVerifiedMemo === expectedMemo) {
+        return {
+          ok: true,
+          memo: lastVerifiedMemo,
+          pageHref: window.location.href,
+        };
+      }
+    }
+
     return {
-      ok: true,
-      memo: parsed.req?.memo ?? input.memo,
+      ok: false,
+      error: `Kakao Maps did not persist the requested note. Expected "${expectedMemo}" but found "${lastVerifiedMemo}".`,
       pageHref: window.location.href,
+      responsePreview: lastResponsePreview,
     };
   } catch (error) {
     return {
@@ -493,4 +713,64 @@ async function updateKakaoFavoriteNoteInPageEnvelope(
       pageHref: window.location.href,
     };
   }
+}
+
+async function resolveKakaoFavoriteForPlaceInPage(input: {
+  folderId: number;
+  placeKey?: string;
+  display1: string;
+  fallbackSeq?: string;
+}) {
+  const response = await fetch(
+    new URL(
+      `/favorite/mine/list?folderid=${encodeURIComponent(String(input.folderId))}`,
+      window.location.origin,
+    ).toString(),
+    {
+      credentials: "include",
+      headers: {
+        Accept: "application/json, text/javascript, */*; q=0.01",
+        "X-Requested-With": "XMLHttpRequest",
+      },
+    },
+  );
+
+  const raw = await response.text();
+  if (!response.ok) {
+    throw new Error(
+      `Kakao Maps favorite lookup failed with status ${response.status}. Response preview: ${raw.slice(0, 180)}`,
+    );
+  }
+
+  const parsed = JSON.parse(raw) as
+    | { favorites?: Array<Record<string, unknown>> }
+    | Array<Record<string, unknown>>;
+  const favorites = Array.isArray(parsed)
+    ? parsed
+    : Array.isArray(parsed.favorites)
+      ? parsed.favorites
+      : null;
+
+  if (!favorites) {
+    throw new Error(
+      `Kakao Maps favorite lookup returned an unexpected payload shape: ${raw.slice(0, 180)}`,
+    );
+  }
+
+  const matched =
+    favorites.find(
+      (favorite) =>
+        (input.placeKey
+          ? String(favorite.key ?? "") === input.placeKey
+          : false) ||
+        String(favorite.seq ?? "") === (input.fallbackSeq ?? "") ||
+        (String(favorite.display1 ?? "").trim() === input.display1.trim() &&
+          (!input.placeKey || !favorite.key)),
+    ) ?? null;
+
+  if (!matched) {
+    throw new Error("Kakao Maps could not find the saved place in the folder.");
+  }
+
+  return matched;
 }

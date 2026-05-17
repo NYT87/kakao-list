@@ -4,6 +4,7 @@ export interface FavoriteListItem {
   id: string;
   title: string;
   placeKey?: string;
+  kakaoFolderId?: number;
   href?: string;
   color?: string;
   subtitle?: string;

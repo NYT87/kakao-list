@@ -1,5 +1,42 @@
 # Progress Log
 
+## Session: 2026-05-17 (Kakao Note Seq Resolution)
+
+### Phase 1: Requirements & Discovery
+- **Status:** complete
+- Actions taken:
+  - Compared the user-provided Kakao `favorite/mine/list?folderid=0` payload against the popup debug values.
+  - Confirmed the real favorite item includes its own `folderid`, while the extension save flow was still deriving folder context from the imported list id.
+  - Identified missing item-level Kakao folder metadata as the most likely reason the resolved `seq` diverged from the real Kakao record.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/task_plan.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+### Phase 2: Implementation
+- **Status:** complete
+- Actions taken:
+  - Added `kakaoFolderId` to imported favorite items in the shared domain model.
+  - Updated the popup Kakao-note save flow to prefer the item-level Kakao folder id and to retain the resolved live favorite record for debugging.
+  - Expanded debug output with `item.kakaoFolderId` and the full resolved live favorite JSON block.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/packages/domain/src/index.ts`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/extension/src/kakaoMapsExtractor.ts`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/extension/src/PopupApp.tsx`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/task_plan.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/findings.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
+### Phase 3: Verification
+- **Status:** complete
+- Actions taken:
+  - Ran `pnpm --filter @kakao-lists/extension build` successfully.
+  - Ran `pnpm typecheck` successfully from the repo root after one small debug-state typing fix.
+- Files created/modified:
+  - `/Users/josemiguel/workspace-personal/kakao-lists/apps/extension/src/PopupApp.tsx`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/task_plan.md`
+  - `/Users/josemiguel/workspace-personal/kakao-lists/progress.md`
+
 ## Session: 2026-05-16 (Editable Kakao Notes)
 
 ### Phase 1: Requirements & Discovery

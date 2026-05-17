@@ -489,6 +489,29 @@ h1 {
   flex: 1;
 }
 
+.note-debug {
+  display: grid;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.note-debug code {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.72rem;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.note-debug-json {
+  margin: 4px 0 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  overflow-x: auto;
+  white-space: pre-wrap;
+}
+
 .copy-note-button svg {
   width: 18px;
   height: 18px;

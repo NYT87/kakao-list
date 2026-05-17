@@ -1,22 +1,22 @@
-# Task Plan: Editable Kakao Notes
+# Task Plan: Kakao Note Seq Resolution
 
 ## Goal
-Allow editing Kakao notes from the extension by always showing a Kakao-note input and saving it back to Kakao Maps plus local/server snapshot state.
+Use the real Kakao saved-item context, including per-item `folderid`, so Kakao-note saves resolve the correct `seq` and the popup debug shows the exact live record being updated.
 
 ## Current Phase
 Phase 3
 
 ## Phases
 ### Phase 1: Requirements & Discovery
-- [x] Inspect the current place-note UI and note persistence flow
-- [x] Identify the Kakao Maps write endpoint and required request shape
-- [x] Record the note-editing design in findings.md
+- [x] Compare the popup debug values against the real `favorite/mine/list?folderid=...` payload
+- [x] Identify the missing item-level Kakao folder context
+- [x] Record the seq-resolution gap in findings.md
 - **Status:** complete
 
 ### Phase 2: Implementation
-- [x] Always render a Kakao-note input
-- [x] Add Kakao-note save through a live Kakao Maps tab
-- [x] Persist the edited note locally and sync the changed list back to the server
+- [x] Preserve Kakao `folderid` on imported items
+- [x] Use the item-level Kakao folder id during live favorite resolution and update
+- [x] Expand debug output with the resolved live favorite object
 - **Status:** complete
 
 ### Phase 3: Verification
@@ -26,22 +26,21 @@ Phase 3
 - **Status:** complete
 
 ## Key Questions
-1. Where in the popup should Kakao note become editable instead of read-only?
-2. What minimum request fields are needed for `favorite/update.json` based on the observed network call?
-3. How should the extension behave if Kakao note save succeeds on Kakao Maps but server sync fails afterward?
+1. Is the correct Kakao `seq` tied to the item’s own `folderid` rather than the derived list id?
+2. Should the popup expose the exact live favorite record it resolves before updating the note?
+3. Can the imported snapshot preserve enough Kakao metadata to avoid this mismatch on future saves?
 
 ## Decisions Made
 | Decision | Rationale |
 |----------|-----------|
-| Reuse the existing `kakaoNote` field instead of adding a new note property | The imported snapshot already models the Kakao memo separately from the local note |
-| Save Kakao note through a Kakao Maps tab-context fetch to `favorite/update.json` | The write operation depends on the logged-in Kakao Maps browser session |
-| Treat Kakao note save as Kakao-first, then local/server persistence | The source of truth for the Kakao memo is Kakao Maps itself |
+| Preserve Kakao `folderid` on each imported item | The real Kakao saved-place payload includes item-level folder context |
+| Prefer `item.kakaoFolderId` over parsing `list.id` during note save | The save flow should follow the same lookup context as Kakao Maps web |
+| Show the resolved live favorite in debug mode | This makes future seq mismatches visible without extra instrumentation |
 
 ## Errors Encountered
 | Error | Attempt | Resolution |
 |-------|---------|------------|
-| Existing `task_plan.md` was stale for the previous chunked-sync task | 1 | Replaced it with a plan for editable Kakao notes |
+| Existing `task_plan.md` still described the earlier editable-notes milestone | 1 | Replaced it with the current seq-resolution follow-up plan |
 
 ## Notes
-- Re-read this plan before major decisions.
-- Both the extension and the server must be updated together because the chunked upload path adds a new API endpoint.
+- This bug is extension-side; the key missing detail is preserving and using the Kakao item `folderid`.

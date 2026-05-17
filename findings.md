@@ -1,5 +1,20 @@
 # Findings & Decisions
 
+## Kakao Note Seq Resolution: 2026-05-17
+
+### Key Findings
+- The real Kakao web flow fetches saved-place details from `GET /favorite/mine/list?folderid=<id>`, and each returned favorite item includes both `seq` and `folderid`.
+- The extension importer was mapping `favorite.seq` into `item.id`, but it was not preserving `favorite.folderid` on the imported item.
+- The popup save flow was therefore falling back to a derived folder id from `list.id`, which can diverge from the actual folder context of the saved-place record being edited.
+- When the wrong folder context is used, the extension can resolve and verify against the wrong Kakao favorite even though the place key matches.
+
+### Technical Decisions
+| Decision | Rationale |
+|----------|-----------|
+| Add `kakaoFolderId` to `FavoriteListItem` | The imported snapshot needs to preserve the folder context Kakao returns per favorite |
+| Use `item.kakaoFolderId` first when resolving or updating a Kakao note | This matches the real Kakao web lookup path more closely than parsing the list id |
+| Show the resolved live favorite object in debug mode | The next failure should expose the exact seq/folder/title/key combination being updated |
+
 ## Editable Kakao Notes: 2026-05-16
 
 ### Key Findings
