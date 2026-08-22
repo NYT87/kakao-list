@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
   CloudSession,
   FavoriteList,
+  FavoriteListItem,
   PushSnapshotResult,
   SyncStatus,
 } from "@kakao-lists/domain";
@@ -13,8 +14,10 @@ import {
   clearCloudSessionInBackground,
 } from "./authBridge";
 import { readStoredCloudSession } from "./cloudSession";
+import { useDebugMode, useSkipOwnerValidation } from "./preferences";
 import {
   extractSnapshotFromKakaoMapsTab,
+  KakaoNoteUpdateError,
   resolveKakaoFavoriteForPlace,
   updateKakaoFavoriteNote,
 } from "./kakaoMapsExtractor";
@@ -31,7 +34,6 @@ const syncServerUrl = import.meta.env.VITE_SYNC_SERVER_URL ?? "";
 const kakaoClientId = import.meta.env.VITE_KAKAO_REST_API_KEY ?? "";
 const pwaBaseUrl = import.meta.env.VITE_PWA_BASE_URL ?? "http://localhost:5173";
 const mockAuthEnabled = import.meta.env.VITE_ENABLE_MOCK_AUTH === "true";
-const debugMode = __DEBUG_MODE__;
 const extensionRedirectPath = "kakao";
 const KAKAO_NOTE_MAX_LENGTH = 50;
 
@@ -42,6 +44,8 @@ interface ActiveTabContext {
   url?: string;
   placeKey?: string;
   source?: "url" | "modal";
+  /** Kakao folder currently open in the tab, when one could be detected. */
+  openFolderId?: number;
 }
 
 type PopupView = "main" | "settings";
@@ -62,11 +66,17 @@ export default function PopupApp() {
   const [localNoteDrafts, setLocalNoteDrafts] = useState<
     Record<string, string>
   >({});
+  const [kakaoNoteErrors, setKakaoNoteErrors] = useState<
+    Record<string, KakaoNoteFailure>
+  >({});
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [view, setView] = useState<PopupView>("main");
   const [themePreference, setThemePreference] = useState<ThemePreference>(() =>
     readThemePreference(),
   );
+  const [debugMode, setDebugMode] = useDebugMode();
+  const [skipOwnerValidation, setSkipOwnerValidation] =
+    useSkipOwnerValidation();
   const [activeTab, setActiveTab] = useState<ActiveTabContext>({
     kind: "default",
     tabId: null,
@@ -92,7 +102,7 @@ export default function PopupApp() {
       return [];
     }
 
-    return lists.flatMap((list) =>
+    const memberships = lists.flatMap((list) =>
       list.items
         .filter(
           (item) =>
@@ -104,6 +114,26 @@ export default function PopupApp() {
           item,
         })),
     );
+
+    const openFolderId = activeTab.openFolderId;
+    if (openFolderId === undefined) {
+      return memberships;
+    }
+
+    // The list open in the Kakao Maps tab is the one the user is working in,
+    // so surface it first while keeping the remaining order untouched.
+    return memberships
+      .map((membership, index) => ({ membership, index }))
+      .sort((left, right) => {
+        const leftOpen = isMembershipInFolder(left.membership, openFolderId);
+        const rightOpen = isMembershipInFolder(right.membership, openFolderId);
+        if (leftOpen !== rightOpen) {
+          return leftOpen ? -1 : 1;
+        }
+
+        return left.index - right.index;
+      })
+      .map(({ membership }) => membership);
   }, [activeTab, lists]);
 
   const hydrate = useCallback(async () => {
@@ -261,7 +291,10 @@ export default function PopupApp() {
       const extracted = await extractSnapshotFromKakaoMapsTab();
       if (extracted) {
         setDebugLines(extracted.debug);
-        const localSnapshot = sanitizeSnapshot(extracted.snapshot);
+        const localSnapshot = sanitizeSnapshot(
+          extracted.snapshot,
+          activeCloudSession,
+        );
         await repository.saveSnapshot(localSnapshot);
         setLists(localSnapshot.lists);
         setLastSyncedAt(localSnapshot.syncedAt);
@@ -301,7 +334,10 @@ export default function PopupApp() {
             throw new Error("Snapshot sync did not return a server result.");
           }
 
-          const storedSnapshot = sanitizeSnapshot(finalResult.snapshot);
+          const storedSnapshot = sanitizeSnapshot(
+            finalResult.snapshot,
+            activeCloudSession,
+          );
           await repository.saveSnapshot(storedSnapshot);
           setLists(storedSnapshot.lists);
           setLastSyncedAt(storedSnapshot.syncedAt);
@@ -370,7 +406,7 @@ export default function PopupApp() {
         return;
       }
 
-      const snapshot = sanitizeSnapshot(result.snapshot);
+      const snapshot = sanitizeSnapshot(result.snapshot, cloudSession);
       await repository.saveSnapshot(snapshot);
       setLists(snapshot.lists);
       setLastSyncedAt(snapshot.syncedAt);
@@ -399,7 +435,10 @@ export default function PopupApp() {
   }
 
   const refreshPlaceViewFromServer = useCallback(
-    async (activeCloudSync: HttpCloudSyncClient) => {
+    async (
+      activeCloudSync: HttpCloudSyncClient,
+      activeCloudSession: CloudSession,
+    ) => {
       setDebugLines((current) =>
         dedupeLines([...current, "phase:background-server-refresh"]),
       );
@@ -413,7 +452,7 @@ export default function PopupApp() {
           return;
         }
 
-        const snapshot = sanitizeSnapshot(result.snapshot);
+        const snapshot = sanitizeSnapshot(result.snapshot, activeCloudSession);
         await repository.saveSnapshot(snapshot);
         setLists(snapshot.lists);
         setLastSyncedAt(snapshot.syncedAt);
@@ -489,7 +528,7 @@ export default function PopupApp() {
         itemId,
         localNote,
       });
-      const snapshot = sanitizeSnapshot(result.snapshot);
+      const snapshot = sanitizeSnapshot(result.snapshot, cloudSession);
       await repository.saveSnapshot(snapshot);
       setLists(snapshot.lists);
       setLastSyncedAt(snapshot.syncedAt);
@@ -551,6 +590,14 @@ export default function PopupApp() {
     setBusyAction(`save-kakao-note:${membershipKey}`);
     setStatus("syncing");
     setMessage("Saving the Kakao note to Kakao Maps...");
+    setKakaoNoteErrors((current) => {
+      if (!current[membershipKey]) {
+        return current;
+      }
+
+      const { [membershipKey]: _cleared, ...rest } = current;
+      return rest;
+    });
 
     try {
       const liveFavorite = await resolveKakaoFavoriteForPlace({
@@ -594,11 +641,14 @@ export default function PopupApp() {
         };
       });
 
-      const updatedSnapshot = sanitizeSnapshot({
-        syncedAt: new Date().toISOString(),
-        source: "extension-kakao-note-edit",
-        lists: updatedLists,
-      });
+      const updatedSnapshot = sanitizeSnapshot(
+        {
+          syncedAt: new Date().toISOString(),
+          source: "extension-kakao-note-edit",
+          lists: updatedLists,
+        },
+        cloudSession,
+      );
 
       await repository.saveSnapshot(updatedSnapshot);
       setLists(updatedSnapshot.lists);
@@ -641,7 +691,7 @@ export default function PopupApp() {
           }
         }
 
-        const snapshot = sanitizeSnapshot(result.snapshot);
+        const snapshot = sanitizeSnapshot(result.snapshot, cloudSession);
         await repository.saveSnapshot(snapshot);
         setLists(snapshot.lists);
         setLastSyncedAt(snapshot.syncedAt);
@@ -664,15 +714,15 @@ export default function PopupApp() {
         );
       }
     } catch (error) {
+      const failure = toKakaoNoteFailure(error);
       setStatus("error");
-      setMessage(
-        error instanceof Error ? error.message : "Kakao note save failed.",
-      );
+      setMessage(failure.message);
+      setKakaoNoteErrors((current) => ({
+        ...current,
+        [membershipKey]: failure,
+      }));
       setDebugLines((current) =>
-        dedupeLines([
-          ...current,
-          `kakao-note-save-error:${error instanceof Error ? error.message : "Kakao note save failed."}`,
-        ]),
+        dedupeLines([...current, `kakao-note-save-error:${failure.message}`]),
       );
     } finally {
       setBusyAction(null);
@@ -738,7 +788,7 @@ export default function PopupApp() {
       return;
     }
 
-    void refreshPlaceViewFromServer(cloudSync);
+    void refreshPlaceViewFromServer(cloudSync, cloudSession);
   }, [activeTab.kind, cloudSession, cloudSync, refreshPlaceViewFromServer]);
 
   useEffect(() => {
@@ -845,6 +895,35 @@ export default function PopupApp() {
                     </button>
                   ))}
                 </fieldset>
+              </div>
+              <div className="options-panel-section">
+                <div className="section-label">Developer</div>
+                <button
+                  aria-pressed={debugMode}
+                  className={`button toggle-button${debugMode ? " is-active" : ""}`}
+                  onClick={() => setDebugMode(!debugMode)}
+                  type="button"
+                >
+                  {debugMode ? "Debug mode: on" : "Debug mode: off"}
+                </button>
+                <p className="small-copy">
+                  Shows ownership and payload debug cards in the place view.
+                </p>
+                <button
+                  aria-pressed={skipOwnerValidation}
+                  className={`button toggle-button${skipOwnerValidation ? " is-active" : ""}`}
+                  onClick={() => setSkipOwnerValidation(!skipOwnerValidation)}
+                  type="button"
+                >
+                  {skipOwnerValidation
+                    ? "Skip owner validation: on"
+                    : "Skip owner validation: off"}
+                </button>
+                <p className="small-copy">
+                  Lets you edit a Kakao note even when the list is not detected
+                  as yours. Kakao Maps still rejects the write if you are not
+                  the real owner.
+                </p>
               </div>
             </section>
             {debugMode ? (
@@ -975,6 +1054,36 @@ export default function PopupApp() {
               </fieldset>
             </section>
 
+            <section className="options-panel-section">
+              <div className="section-label">Developer</div>
+              <button
+                aria-pressed={debugMode}
+                className={`button toggle-button${debugMode ? " is-active" : ""}`}
+                onClick={() => setDebugMode(!debugMode)}
+                type="button"
+              >
+                {debugMode ? "Debug mode: on" : "Debug mode: off"}
+              </button>
+              <p className="small-copy">
+                Shows ownership and payload debug cards in the place view.
+              </p>
+              <button
+                aria-pressed={skipOwnerValidation}
+                className={`button toggle-button${skipOwnerValidation ? " is-active" : ""}`}
+                onClick={() => setSkipOwnerValidation(!skipOwnerValidation)}
+                type="button"
+              >
+                {skipOwnerValidation
+                  ? "Skip owner validation: on"
+                  : "Skip owner validation: off"}
+              </button>
+              <p className="small-copy">
+                Lets you edit a Kakao note even when the list is not detected as
+                yours. Kakao Maps still rejects the write if you are not the
+                real owner.
+              </p>
+            </section>
+
             <div className="actions actions-stacked">
               <button
                 className="button primary"
@@ -1091,7 +1200,14 @@ export default function PopupApp() {
               {placeMemberships.map(({ list, item }) => (
                 <li className="match-card" key={`${list.id}:${item.id}`}>
                   {(() => {
-                    const canEditKakao = canEditKakaoNote(list, cloudSession);
+                    const isKakaoNoteOwner = canEditKakaoNote(
+                      list,
+                      cloudSession,
+                    );
+                    const canEditKakao =
+                      isKakaoNoteOwner || skipOwnerValidation;
+                    const kakaoNoteError =
+                      kakaoNoteErrors[getMembershipKey(list.id, item.id)];
 
                     return (
                       <>
@@ -1181,14 +1297,79 @@ export default function PopupApp() {
                               Kakao note.
                             </p>
                           ) : null}
+                          {kakaoNoteError ? (
+                            <div className="note-error" role="alert">
+                              <strong>Kakao Maps rejected this save</strong>
+                              <p>{kakaoNoteError.message}</p>
+                              {kakaoNoteError.kakaoCode ||
+                              kakaoNoteError.httpStatus ? (
+                                <p className="small-copy">
+                                  {[
+                                    kakaoNoteError.kakaoCode
+                                      ? `code ${kakaoNoteError.kakaoCode}`
+                                      : null,
+                                    kakaoNoteError.httpStatus
+                                      ? `HTTP ${kakaoNoteError.httpStatus}`
+                                      : null,
+                                  ]
+                                    .filter(Boolean)
+                                    .join(" · ")}
+                                </p>
+                              ) : null}
+                              {debugMode && kakaoNoteError.responsePreview ? (
+                                <pre className="note-debug-json">
+                                  <code>{kakaoNoteError.responsePreview}</code>
+                                </pre>
+                              ) : null}
+                            </div>
+                          ) : null}
                           {debugMode ? (
                             <div className="note-debug">
+                              <div className="ownership-debug-card">
+                                <div className="section-label">
+                                  Ownership debug
+                                </div>
+                                <ul className="compact-list meta">
+                                  <li>
+                                    <strong>List owner id (Maps)</strong>
+                                    <span>{list.ownerId ?? "Unknown"}</span>
+                                  </li>
+                                  <li>
+                                    <strong>Imported by (account)</strong>
+                                    <span>
+                                      {list.importedByUserId ?? "Unknown"}
+                                    </span>
+                                  </li>
+                                  <li>
+                                    <strong>Logged user id (account)</strong>
+                                    <span>
+                                      {cloudSession?.user.id ?? "Signed out"}
+                                    </span>
+                                  </li>
+                                  <li>
+                                    <strong>Is owner</strong>
+                                    <span>{String(isKakaoNoteOwner)}</span>
+                                  </li>
+                                  <li>
+                                    <strong>Skip owner check</strong>
+                                    <span>{String(skipOwnerValidation)}</span>
+                                  </li>
+                                  <li>
+                                    <strong>Can edit</strong>
+                                    <span>{String(canEditKakao)}</span>
+                                  </li>
+                                </ul>
+                              </div>
                               <code>{`creator=${list.creatorName ?? "none"}`}</code>
+                              <code>{`list.ownerId=${list.ownerId ?? "none"}`}</code>
+                              <code>{`list.importedByUserId=${list.importedByUserId ?? "none"}`}</code>
                               <code>{`user.id=${cloudSession?.user.id ?? "none"}`}</code>
                               <code>{`user.nickname=${cloudSession?.user.nickname ?? "none"}`}</code>
                               <code>{`item.seq=${item.id}`}</code>
                               <code>{`item.placeKey=${item.placeKey ?? "none"}`}</code>
                               <code>{`item.kakaoFolderId=${item.kakaoFolderId ?? "none"}`}</code>
+                              <code>{`isOwner=${String(isKakaoNoteOwner)}`}</code>
+                              <code>{`skipOwnerValidation=${String(skipOwnerValidation)}`}</code>
                               <code>{`canEdit=${String(canEditKakao)}`}</code>
                               <pre className="note-debug-json">
                                 <code>
@@ -1347,6 +1528,13 @@ async function resolveActiveTabContext(
   const placeKey = extractPlaceKeyFromUrl(url);
 
   if (placeKey) {
+    // A place page carries no folder, so fall back to the Kakao Maps tab the
+    // list is open in.
+    const openFolderId =
+      extractFolderIdFromUrl(url) ??
+      (await readOpenFavoriteFolderIdFromKakaoMapsTabs()) ??
+      undefined;
+
     return {
       kind: "place",
       tabId: tab.id ?? null,
@@ -1354,12 +1542,18 @@ async function resolveActiveTabContext(
       url,
       placeKey,
       source: "url",
+      openFolderId,
     };
   }
 
   if (tab.id && isKakaoMapsPageUrl(url)) {
     const modalPlace = await readOpenPlaceModalContext(tab.id);
     if (modalPlace?.placeKey) {
+      const openFolderId =
+        (await readOpenFavoriteFolderId(tab.id)) ??
+        extractFolderIdFromUrl(url) ??
+        undefined;
+
       return {
         kind: "place",
         tabId: tab.id,
@@ -1367,6 +1561,7 @@ async function resolveActiveTabContext(
         url: modalPlace.href ?? url,
         placeKey: modalPlace.placeKey,
         source: "modal",
+        openFolderId,
       };
     }
   }
@@ -1395,6 +1590,154 @@ function extractPlaceKeyFromUrl(url: string): string | null {
 
 function extractPlaceKeyFromHref(href?: string): string | null {
   return href ? extractPlaceKeyFromUrl(href) : null;
+}
+
+function isMembershipInFolder(
+  membership: { list: FavoriteList; item: FavoriteListItem },
+  folderId: number,
+) {
+  return (
+    membership.item.kakaoFolderId === folderId ||
+    extractFolderIdFromListId(membership.list.id) === folderId
+  );
+}
+
+function extractFolderIdFromUrl(url: string): number | null {
+  try {
+    const parsed = new URL(url);
+    return (
+      parseFolderId(parsed.search) ??
+      parseFolderId(parsed.hash) ??
+      parseFolderId(parsed.pathname)
+    );
+  } catch {
+    return null;
+  }
+}
+
+function parseFolderId(value: string): number | null {
+  const match = /folder[_-]?id=(\d+)/i.exec(value);
+  if (!match) {
+    return null;
+  }
+
+  const parsed = Number(match[1]);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+async function readOpenFavoriteFolderIdFromKakaoMapsTabs(): Promise<
+  number | null
+> {
+  try {
+    const tabs = await chrome.tabs.query({ url: "https://map.kakao.com/*" });
+    for (const tab of tabs) {
+      const fromUrl = extractFolderIdFromUrl(tab.url ?? "");
+      if (fromUrl) {
+        return fromUrl;
+      }
+
+      if (tab.id) {
+        const fromPage = await readOpenFavoriteFolderId(tab.id);
+        if (fromPage) {
+          return fromPage;
+        }
+      }
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+async function readOpenFavoriteFolderId(tabId: number): Promise<number | null> {
+  try {
+    const [{ result }] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: findOpenFavoriteFolderInPage,
+    });
+
+    return typeof result === "number" && Number.isFinite(result) && result > 0
+      ? result
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function findOpenFavoriteFolderInPage(): number | null {
+  const readFolderId = (value?: string | null) => {
+    if (!value) {
+      return null;
+    }
+
+    const match = /folder[_-]?id=(\d+)/i.exec(value);
+    const raw = match ? match[1] : value.trim();
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  };
+
+  const isVisible = (element: Element | null): element is HTMLElement => {
+    if (!(element instanceof HTMLElement)) {
+      return false;
+    }
+
+    const style = window.getComputedStyle(element);
+    const rect = element.getBoundingClientRect();
+    return (
+      style.display !== "none" &&
+      style.visibility !== "hidden" &&
+      rect.width > 0 &&
+      rect.height > 0
+    );
+  };
+
+  const fromLocation =
+    readFolderId(window.location.search) ?? readFolderId(window.location.hash);
+  if (fromLocation) {
+    return fromLocation;
+  }
+
+  // Kakao marks the folder currently being viewed as the selected entry.
+  const selectedSelectors = [
+    "[data-folderid].on",
+    "[data-folderid].active",
+    "[data-folderid].selected",
+    "[data-folderid][aria-selected='true']",
+    ".on [data-folderid]",
+  ];
+
+  for (const selector of selectedSelectors) {
+    const element = document.querySelector(selector);
+    if (!isVisible(element)) {
+      continue;
+    }
+
+    const folderId =
+      readFolderId(element.getAttribute("data-folderid")) ??
+      readFolderId(element.getAttribute("href"));
+    if (folderId) {
+      return folderId;
+    }
+  }
+
+  const folderNodes = Array.from(
+    document.querySelectorAll("[data-folderid], a[href*='folderid=']"),
+  ).filter(isVisible);
+
+  const uniqueIds = new Set<number>();
+  for (const node of folderNodes) {
+    const folderId =
+      readFolderId(node.getAttribute("data-folderid")) ??
+      readFolderId(node.getAttribute("href"));
+    if (folderId) {
+      uniqueIds.add(folderId);
+    }
+  }
+
+  // Only trust this fallback when the page shows exactly one folder, which is
+  // what an opened list looks like.
+  return uniqueIds.size === 1 ? [...uniqueIds][0] : null;
 }
 
 function extractFolderIdFromListId(listId: string): number | null {
@@ -1523,15 +1866,40 @@ function buildPwaListUrl(listId: string, itemId?: string) {
   }
 }
 
-function sanitizeSnapshot(snapshot: {
-  syncedAt: string;
-  source: string;
-  lists: FavoriteList[];
-}) {
+function sanitizeSnapshot(
+  snapshot: {
+    syncedAt: string;
+    source: string;
+    lists: FavoriteList[];
+  },
+  cloudSession?: CloudSession | null,
+) {
   return {
     ...snapshot,
-    lists: filterVisibleLists(snapshot.lists),
+    lists: stampSnapshotOwnership(
+      filterVisibleLists(snapshot.lists),
+      cloudSession,
+    ),
   };
+}
+
+// Kakao Maps only exposes folders of the signed-in Maps session, and the sync
+// server keeps one snapshot per Kakao account, so every list reaching the popup
+// belongs to the signed-in user. Record that so note editing is not blocked by
+// creator names that never match the Kakao account profile.
+function stampSnapshotOwnership(
+  lists: FavoriteList[],
+  cloudSession?: CloudSession | null,
+) {
+  if (!cloudSession) {
+    return lists;
+  }
+
+  return lists.map((list) =>
+    list.importedByUserId
+      ? list
+      : { ...list, importedByUserId: cloudSession.user.id },
+  );
 }
 
 function filterVisibleLists(lists: FavoriteList[]) {
@@ -1602,12 +1970,43 @@ function formatCountLabel(count: number, singular: string, plural: string) {
   return `${formattedCount} ${count === 1 ? singular : plural}`;
 }
 
+interface KakaoNoteFailure {
+  message: string;
+  kakaoCode?: string;
+  httpStatus?: number;
+  responsePreview?: string;
+}
+
+function toKakaoNoteFailure(error: unknown): KakaoNoteFailure {
+  if (error instanceof KakaoNoteUpdateError) {
+    return {
+      message: error.message,
+      kakaoCode: error.kakaoCode,
+      httpStatus: error.httpStatus,
+      responsePreview: error.responsePreview,
+    };
+  }
+
+  return {
+    message: error instanceof Error ? error.message : "Kakao note save failed.",
+  };
+}
+
 function canEditKakaoNote(
   list: FavoriteList,
   cloudSession: CloudSession | null,
 ) {
   if (!cloudSession) {
     return false;
+  }
+
+  const userId = normalizeOwnershipToken(cloudSession.user.id.trim());
+
+  if (
+    list.importedByUserId &&
+    normalizeOwnershipToken(list.importedByUserId.trim()) === userId
+  ) {
+    return true;
   }
 
   const creator = list.creatorName?.trim();
@@ -1618,7 +2017,6 @@ function canEditKakaoNote(
   const normalizedCreator = normalizeOwnershipToken(creator);
   const nickname = cloudSession.user.nickname?.trim();
   const normalizedNickname = normalizeOwnershipToken(nickname);
-  const userId = normalizeOwnershipToken(cloudSession.user.id.trim());
 
   if (
     normalizedCreator.length > 0 &&

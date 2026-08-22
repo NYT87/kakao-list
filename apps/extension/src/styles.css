@@ -565,3 +565,44 @@ h1 {
     animation-iteration-count: 1;
   }
 }
+
+.toggle-button.is-active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.ownership-debug-card {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 4px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.ownership-debug-card .compact-list span {
+  overflow-wrap: anywhere;
+}
+
+.note-error {
+  display: grid;
+  gap: 4px;
+  margin-top: 8px;
+  padding: 10px;
+  border: 1px solid var(--danger-line);
+  border-radius: 10px;
+  color: var(--danger-fg);
+}
+
+.note-error strong {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.note-error p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}

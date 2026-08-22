@@ -17,6 +17,10 @@ export interface FavoriteList {
   name: string;
   description?: string;
   creatorName?: string;
+  /** Kakao Maps user id that owns the source folder, when the import exposed one. */
+  ownerId?: string;
+  /** Kakao account id of the user whose signed-in session imported this list. */
+  importedByUserId?: string;
   updatedAt: string;
   itemCount: number;
   items: FavoriteListItem[];

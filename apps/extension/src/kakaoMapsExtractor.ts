@@ -93,8 +93,29 @@ interface KakaoNoteUpdateEnvelope {
   ok: boolean;
   memo?: string;
   error?: string;
+  /** `status.code` from the Kakao Maps response, when it answered with JSON. */
+  kakaoCode?: string;
+  /** HTTP status of the failing Kakao Maps request, when there was one. */
+  httpStatus?: number;
   pageHref?: string;
   responsePreview?: string;
+}
+
+/** Carries the Kakao Maps failure verbatim so the popup can show it as-is. */
+export class KakaoNoteUpdateError extends Error {
+  readonly kakaoCode?: string;
+  readonly httpStatus?: number;
+  readonly pageHref?: string;
+  readonly responsePreview?: string;
+
+  constructor(envelope: KakaoNoteUpdateEnvelope) {
+    super(envelope.error ?? "Kakao Maps rejected the note update.");
+    this.name = "KakaoNoteUpdateError";
+    this.kakaoCode = envelope.kakaoCode;
+    this.httpStatus = envelope.httpStatus;
+    this.pageHref = envelope.pageHref;
+    this.responsePreview = envelope.responsePreview;
+  }
 }
 
 export async function extractSnapshotFromKakaoMapsTab(): Promise<ExtractedKakaoMapsSnapshot | null> {
@@ -178,15 +199,10 @@ export async function updateKakaoFavoriteNote(
 
   const envelope = result as KakaoNoteUpdateEnvelope;
   if (!envelope.ok) {
-    throw new Error(
-      envelope.error
-        ? `Kakao note update failed: ${envelope.error}${envelope.pageHref ? ` @ ${envelope.pageHref}` : ""}${
-            envelope.responsePreview
-              ? ` | preview: ${envelope.responsePreview}`
-              : ""
-          }`
-        : "Kakao note update returned no structured result.",
-    );
+    throw new KakaoNoteUpdateError({
+      ...envelope,
+      pageHref: envelope.pageHref ?? tab.url ?? undefined,
+    });
   }
 
   return {
@@ -453,6 +469,10 @@ async function extractSnapshotInPageEnvelope(): Promise<PageExtractionEnvelope> 
             folder.nickname?.trim() ||
             folder.kakao_map_user_id?.trim() ||
             (folder.map_user_id ? `map:${folder.map_user_id}` : undefined),
+          ownerId:
+            folder.kakao_map_user_id?.trim() ||
+            folder.map_user_id?.trim() ||
+            undefined,
           updatedAt: resolveListUpdatedAt(folder, favorites, now),
           itemCount: items.length,
           items,
@@ -494,8 +514,10 @@ async function updateKakaoFavoriteNoteInPageEnvelope(
     const seq =
       Number.isFinite(numericSeq) && numericSeq > 0 ? numericSeq : input.seq;
 
+    // Mirrors what map.kakao.com itself sends: POST /favorite/update with the
+    // edited favorites wrapped in a `datas` array.
     const response = await fetch(
-      new URL("/favorite/update.json", window.location.origin).toString(),
+      new URL("/favorite/update", window.location.origin).toString(),
       {
         method: "POST",
         credentials: "include",
@@ -505,11 +527,15 @@ async function updateKakaoFavoriteNoteInPageEnvelope(
           "X-Requested-With": "XMLHttpRequest",
         },
         body: JSON.stringify({
-          seq,
-          display1: input.display1,
-          display2: input.display2,
-          color: input.color,
-          memo: input.memo,
+          datas: [
+            {
+              seq,
+              display1: input.display1,
+              display2: input.display2,
+              color: input.color,
+              memo: input.memo,
+            },
+          ],
         }),
       },
     );
@@ -519,20 +545,32 @@ async function updateKakaoFavoriteNoteInPageEnvelope(
       return {
         ok: false,
         error: `Kakao Maps request failed with status ${response.status}`,
+        httpStatus: response.status,
         pageHref: window.location.href,
         responsePreview: raw.slice(0, 180),
       };
     }
 
-    let parsed: {
-      status?: { code?: string; message?: string };
+    interface KakaoUpdateStatus {
+      code?: string;
+      message?: string;
+    }
+
+    interface KakaoUpdateEntry {
+      status?: KakaoUpdateStatus;
+      last_updated_at?: string;
       req?: { memo?: string };
+    }
+
+    let parsed: {
+      status?: KakaoUpdateStatus;
+      data?: KakaoUpdateEntry[];
     } | null = null;
 
     try {
       parsed = JSON.parse(raw) as {
-        status?: { code?: string; message?: string };
-        req?: { memo?: string };
+        status?: KakaoUpdateStatus;
+        data?: KakaoUpdateEntry[];
       };
     } catch {
       return {
@@ -543,36 +581,43 @@ async function updateKakaoFavoriteNoteInPageEnvelope(
       };
     }
 
-    if (parsed?.status?.code !== "SUCCESS") {
+    // The envelope reports one status for the request and one per edited entry.
+    const entry = parsed?.data?.[0];
+    const entryStatus = entry?.status;
+    const failedStatus =
+      parsed?.status?.code !== "SUCCESS"
+        ? parsed?.status
+        : entryStatus && entryStatus.code !== "SUCCESS"
+          ? entryStatus
+          : null;
+
+    if (failedStatus) {
       return {
         ok: false,
-        error:
-          parsed?.status?.message || "Kakao Maps rejected the note update.",
+        error: failedStatus.message || "Kakao Maps rejected the note update.",
+        kakaoCode: failedStatus.code,
+        httpStatus: response.status,
         pageHref: window.location.href,
         responsePreview: raw.slice(0, 180),
       };
     }
 
-    const homeResponse = await fetch(
-      new URL("/favorite/home.json", window.location.origin).toString(),
-      {
-        method: "GET",
-        credentials: "include",
-        headers: {
-          Accept: "application/json, text/javascript, */*; q=0.01",
-          "X-Requested-With": "XMLHttpRequest",
+    // Best-effort cache nudge. Kakao already accepted the write above, so a
+    // failure here must not be reported as a failed save.
+    try {
+      await fetch(
+        new URL("/favorite/home.json", window.location.origin).toString(),
+        {
+          method: "GET",
+          credentials: "include",
+          headers: {
+            Accept: "application/json, text/javascript, */*; q=0.01",
+            "X-Requested-With": "XMLHttpRequest",
+          },
         },
-      },
-    );
-
-    if (!homeResponse.ok) {
-      const homeRaw = await homeResponse.text();
-      return {
-        ok: false,
-        error: `Kakao Maps home refresh failed with status ${homeResponse.status}`,
-        pageHref: window.location.href,
-        responsePreview: homeRaw.slice(0, 180),
-      };
+      );
+    } catch {
+      // Ignored: verification below re-reads the folder anyway.
     }
 
     const expectedMemo = input.memo.trim();

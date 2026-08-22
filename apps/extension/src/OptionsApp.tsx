@@ -3,6 +3,7 @@ import type { CloudSession, SyncStatus } from "@kakao-lists/domain";
 import { LocalStorageFavoriteListsRepository } from "@kakao-lists/storage";
 import { HttpCloudSyncClient } from "@kakao-lists/sync";
 import { readStoredCloudSession } from "./cloudSession";
+import { useDebugMode, useSkipOwnerValidation } from "./preferences";
 import {
   readThemePreference,
   type ThemePreference,
@@ -13,7 +14,6 @@ const repository = new LocalStorageFavoriteListsRepository(
   "kakao-lists:extension",
 );
 const syncServerUrl = import.meta.env.VITE_SYNC_SERVER_URL ?? "";
-const debugMode = __DEBUG_MODE__;
 
 export default function OptionsApp() {
   const [cloudSession, setCloudSession] = useState<CloudSession | null>(null);
@@ -27,6 +27,9 @@ export default function OptionsApp() {
   const [themePreference, setThemePreference] = useState<ThemePreference>(() =>
     readThemePreference(),
   );
+  const [debugMode, setDebugMode] = useDebugMode();
+  const [skipOwnerValidation, setSkipOwnerValidation] =
+    useSkipOwnerValidation();
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const redirectUri =
     typeof chrome !== "undefined" && chrome.identity?.getRedirectURL
@@ -156,6 +159,36 @@ export default function OptionsApp() {
               </button>
             ))}
           </fieldset>
+        </section>
+
+        <section className="options-panel-section">
+          <div className="section-label">Developer</div>
+          <button
+            aria-pressed={debugMode}
+            className={`button toggle-button${debugMode ? " is-active" : ""}`}
+            onClick={() => setDebugMode(!debugMode)}
+            type="button"
+          >
+            {debugMode ? "Debug mode: on" : "Debug mode: off"}
+          </button>
+          <p className="small-copy">
+            Shows ownership and payload debug cards in the extension popup.
+          </p>
+          <button
+            aria-pressed={skipOwnerValidation}
+            className={`button toggle-button${skipOwnerValidation ? " is-active" : ""}`}
+            onClick={() => setSkipOwnerValidation(!skipOwnerValidation)}
+            type="button"
+          >
+            {skipOwnerValidation
+              ? "Skip owner validation: on"
+              : "Skip owner validation: off"}
+          </button>
+          <p className="small-copy">
+            Lets you edit a Kakao note even when the list is not detected as
+            yours. Kakao Maps still rejects the write if you are not the real
+            owner.
+          </p>
         </section>
 
         <div className="actions actions-stacked">
