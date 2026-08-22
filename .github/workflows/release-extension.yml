@@ -18,7 +18,10 @@ jobs:
       contents: write
     env:
       RELEASE_TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.tag_name }}
-      EXTENSION_PUBLIC_KEY: ${{ vars.EXTENSION_PUBLIC_KEY }}
+      EXTENSION_PUBLIC_KEY: ${{ secrets.EXTENSION_PUBLIC_KEY }}
+      VITE_SYNC_SERVER_URL: ${{ vars.VITE_SYNC_SERVER_URL }}
+      VITE_KAKAO_REST_API_KEY: ${{ secrets.VITE_KAKAO_REST_API_KEY }}
+      VITE_PWA_BASE_URL: ${{ vars.VITE_PWA_BASE_URL }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4

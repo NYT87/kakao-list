@@ -166,7 +166,10 @@ See [.env.example](/Users/josemiguel/workspace-personal/kakao-lists/.env.example
 - If you need a stable Kakao redirect URI for this manual distribution flow, see [docs/extension-public-key.md](/Users/josemiguel/workspace-personal/kakao-lists/docs/extension-public-key.md).
 - The repo bundle command is `pnpm bundle:extension`, and it writes [apps/extension/kakao-lists-extension.zip](/Users/josemiguel/workspace-personal/kakao-lists/apps/extension/kakao-lists-extension.zip).
 - GitHub release automation is defined in [.github/workflows/release-extension.yml](/Users/josemiguel/workspace-personal/kakao-lists/.github/workflows/release-extension.yml). When a GitHub release is published, the workflow rebuilds the extension zip and uploads it to the release assets automatically.
-- If you want every release asset to keep the same extension ID, set the repository Actions variable `EXTENSION_PUBLIC_KEY` to the same one-line public-key value described in [docs/extension-public-key.md](/Users/josemiguel/workspace-personal/kakao-lists/docs/extension-public-key.md).
+- If you want every release asset to keep the same extension ID, set the repository Actions secret `EXTENSION_PUBLIC_KEY` to the same one-line public-key value described in [docs/extension-public-key.md](/Users/josemiguel/workspace-personal/kakao-lists/docs/extension-public-key.md).
+- Set the repository Actions variable `VITE_SYNC_SERVER_URL` to the deployed API base URL, including `https://`, so release bundles point at the hosted sync server.
+- Set the repository Actions secret `VITE_KAKAO_REST_API_KEY` so the released extension can start Kakao sign-in.
+- Set the repository Actions variable `VITE_PWA_BASE_URL` to the deployed PWA base URL so extension links open the hosted web app instead of localhost.
 
 ## Deploying To Vercel
 
