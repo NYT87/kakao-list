@@ -86,15 +86,16 @@ This path is intentionally experimental:
 
 The sync server exposes a read-only [MCP](https://modelcontextprotocol.io) endpoint at `/mcp`, so AI agents can answer questions about a user's saved places and notes. Tools: `list_lists`, `get_list`, `search_places`, `get_place`.
 
-1. Open the web app, go to **Settings → AI Assistants → Connect an assistant**, and create a connection key (shown once; **Setup details** has the server address and a ready-made Claude Code command).
-2. Connect your agent with the server URL and the token, e.g. for Claude Code:
+**Sign in with Kakao (recommended).** In the assistant (for example a custom connector in Claude), add `https://<sync-server>/mcp` and sign in with Kakao when asked. The web app shows these steps under **Settings → AI Assistants → Connect an assistant**. This needs `PUBLIC_SERVER_URL` on the server and `${PUBLIC_SERVER_URL}/oauth/kakao/callback` registered as a Redirect URI in Kakao Developers.
+
+**Connection key (fallback).** For assistants without sign-in support, choose **My assistant needs a key instead** and create a key (shown once). For Claude Code:
 
 ```bash
 claude mcp add --transport http kakao-lists https://<sync-server>/mcp \
   --header "Authorization: Bearer kl_pat_…"
 ```
 
-Tokens are read-only, expire after 30, 90 or 365 days, and can be disconnected from the same screen. Design and roadmap (Kakao sign-in for agents, agent-triggered sync): [docs/agent-access.md](docs/agent-access.md).
+Access is read-only. Both kinds of connection are listed in the same screen and can be disconnected there. Design and roadmap: [docs/agent-access.md](docs/agent-access.md).
 
 ## Tests
 

@@ -2,7 +2,7 @@
 
 Design notes for letting AI agents (Claude Code, Claude Desktop, claude.ai, ChatGPT, Cursor, …) read a user's saved Kakao lists and ask the extension to refresh them.
 
-Status: **phase 1 implemented** (read-only MCP with personal access tokens). Phases 2 and 3 are proposals.
+Status: **phases 1 and 2 implemented** (read-only MCP; sign in with Kakao, with personal access tokens as the fallback). Phase 3 is a proposal.
 
 ## Goals
 
@@ -100,6 +100,52 @@ Search/pagination helpers can live in `packages/domain` so the PWA can reuse the
 - Write tools (e.g. `update_local_note`) are out of scope for now and would get their own scope later.
 
 ---
+
+## Phase 2 implementation
+
+Enabled when `PUBLIC_SERVER_URL` (the server's public origin) and `KAKAO_REST_API_KEY` are set. Without `PUBLIC_SERVER_URL`, `/mcp` only accepts personal agent tokens and no OAuth endpoints are mounted.
+
+| Piece | Location |
+|---|---|
+| Authorization server: provider, Kakao callback, registration policy, token issuance | `apps/server/src/kakaoOAuth.ts` |
+| Consent and error pages | `apps/server/src/oauthPages.ts` |
+| Storage: clients, pending sign-ins, codes, grants, tokens | `apps/server/src/oauthStore.ts` |
+| `/mcp` verifier for both token kinds | `apps/server/src/agentVerifier.ts` |
+| Connections API for the PWA | `apps/server/src/agentConnectionRoutes.ts` |
+| PWA: "Connect an assistant" sign-in steps, key fallback, merged list | `apps/pwa/src/AgentAccessPanel.tsx` |
+| Tests, including an interop test with the SDK's own client OAuth flow | `apps/server/src/kakaoOAuth.test.ts`, `oauthStore.postgres.test.ts` |
+
+Setup:
+
+1. Set `PUBLIC_SERVER_URL`, e.g. `https://kakao-lists-server.example.com` (https, except `localhost` for development).
+2. In Kakao Developers, add `${PUBLIC_SERVER_URL}/oauth/kakao/callback` as a Redirect URI of the same app as `KAKAO_REST_API_KEY`.
+3. Users add `${PUBLIC_SERVER_URL}/mcp` as a custom connector in their assistant and sign in with Kakao.
+
+Decisions:
+
+- **The SDK's `mcpAuthRouter` provides the endpoints** (`/authorize`, `/token`, `/register`, `/revoke`, metadata) and the PKCE check; `kakaoOAuth.ts` implements its `OAuthServerProvider`.
+- **Public clients only.** Every registration is stored as `token_endpoint_auth_method: "none"` without a secret, whatever the client asked for; the registration response tells the client. The SDK compares client secrets in plaintext, and assistants that run on users' machines cannot keep a secret anyway. PKCE (S256) is required for every authorization.
+- **Our own authorization server metadata** is served before the SDK's copy, because the SDK always advertises `client_secret_post`.
+- **Redirect URI policy:** https; http only on loopback hosts (any port, per RFC 8252); private-use schemes only in reverse-domain form (e.g. `com.example.app:/cb`); never with credentials or a fragment. At most 10 per client, each at most 2000 characters. Only known registration fields are stored.
+- **Consent page before Kakao.** It names the assistant (HTML-escaped: the name comes from open registration), says where the user will return, and states the access is read-only. Kakao's own consent screen describes this app, not the assistant. The page cannot be framed and is not cached.
+- **The Kakao round-trip is bound to the browser** with an `HttpOnly`, `SameSite=Lax` cookie scoped to the callback path; the callback requires it to match `state` (login CSRF protection). Pending sign-ins are single-use and expire after 10 minutes.
+- **Kakao tokens from this sign-in are not stored.** Only the Kakao user id is used, so the web app's own Kakao session record is untouched.
+- **A grant is one connected assistant.** Exchanging a code creates the grant with its tokens; revoking the grant (from the PWA, `/revoke`, or replay detection) disconnects that assistant.
+- **Lifetimes:** authorization codes 60 seconds, access tokens 1 hour, refresh tokens 30 days, rotated on every use (the grant's expiry moves with them).
+- **Replay detection:** reusing an authorization code or an already-rotated refresh token revokes the whole grant (OAuth 2.1 security BCP). Redeeming a code is one transaction that locks the code row, creates the grant and its tokens, and links the code to the grant, so even a concurrent replay sees the grant and revokes it. Pending sign-ins and refresh rotation are also single-use under concurrency (verified by Postgres tests).
+- **Audience binding:** tokens are only issued for this server's `/mcp` resource, and `/mcp` checks the resource on every token. Personal agent tokens are bound to the same resource by `agentVerifier.ts`.
+- **At most 20 active grants per user**, checked in the callback (so the user sees the reason) and again atomically when the code is exchanged.
+- **Logs show paths only:** OAuth query strings carry codes and state, so request logging drops query strings everywhere.
+- **Timeouts:** outbound Kakao requests time out after 10 seconds.
+- **`trust proxy` is 1** so the SDK's per-IP rate limits see client addresses behind Vercel.
+
+Known gaps:
+
+- The SDK's rate limits on the OAuth endpoints are in memory, per serverless instance. Stronger limits need a shared store or platform rules.
+- Registered clients are never cleaned up. Registration is rate limited and only known fields are stored, but abandoned registrations accumulate.
+- Client ID Metadata Documents are not supported (not in the SDK's server); clients must use dynamic registration.
+
+Verification (2026-10-24): `pnpm test` (115 tests, 18 of them Postgres integration, including an end-to-end run of the MCP SDK client's own OAuth flow), `pnpm typecheck`, `biome check`, all builds, a smoke test of discovery, registration, consent and the 401 challenge against the real server entry point, and Brave screenshots of the consent page, the callback error page and the PWA panel in light and dark mode at desktop and 375 px widths. The Kakao login step itself was not exercised against real Kakao.
 
 ## Phase 2 — Authentication via Kakao (OAuth 2.1)
 
@@ -238,7 +284,7 @@ Agents with browser control (e.g. Claude in Chrome) can open Kakao Maps and clic
 
 ## Alternative: personal access tokens
 
-Simpler stopgap for phase 1 before OAuth exists, and a fallback for clients without OAuth support.
+The phase 1 credential, kept as the fallback for clients without OAuth support (the PWA offers it as "My assistant needs a key instead").
 
 - PWA screen "Connect an AI agent" creates a token `kl_pat_…`, shown once.
 - Stored hashed in `api_tokens` (`kakao_user_id`, `name`, `scope`, `last_used_at`, `revoked_at`).
