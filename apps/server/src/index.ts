@@ -1,11 +1,8 @@
-import fs from "node:fs";
 import crypto from "node:crypto";
+import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
-import cors from "cors";
-import express from "express";
-import { Pool, type PoolClient } from "pg";
 import type {
   CloudSession,
   ExchangeKakaoCodeInput,
@@ -13,12 +10,22 @@ import type {
   KakaoUserProfile,
   MockAuthInput,
   PullSnapshotResult,
-  PushSnapshotListInput,
   PushSnapshotInput,
+  PushSnapshotListInput,
   PushSnapshotResult,
   SyncSnapshot,
   UpdateLocalNoteInput,
 } from "@kakao-lists/domain";
+import cors from "cors";
+import express from "express";
+import { Pool, type PoolClient } from "pg";
+import { createAgentTokenRouter } from "./agentTokenRoutes.js";
+import {
+  AGENT_TOKENS_SCHEMA_SQL,
+  createAgentTokenVerifier,
+  createPostgresAgentTokenStore,
+} from "./agentTokens.js";
+import { createMcpRouter } from "./mcpServer.js";
 
 loadRootEnvFiles();
 
@@ -37,9 +44,11 @@ const jsonBodyLimit = process.env.JSON_BODY_LIMIT ?? "10mb";
 const pool = new Pool({
   connectionString: databaseUrl,
 });
+const agentTokenStore = createPostgresAgentTokenStore(pool);
 
 const app: express.Express = express();
-app.use(cors());
+// MCP clients running in a browser need to read the auth challenge.
+app.use(cors({ exposedHeaders: ["WWW-Authenticate"] }));
 app.use(express.json({ limit: jsonBodyLimit }));
 app.use((request, response, next) => {
   if (!shouldLogRequest(request.originalUrl)) {
@@ -58,7 +67,7 @@ app.use((request, response, next) => {
 
   next();
 });
-app.use("/api", async (_request, response, next) => {
+app.use(["/api", "/mcp"], async (_request, response, next) => {
   try {
     await ensureServerReady();
     next();
@@ -83,7 +92,7 @@ interface KakaoTokenRecord {
 }
 
 function shouldLogRequest(url: string) {
-  return url === "/health" || url.startsWith("/api");
+  return url === "/health" || url.startsWith("/api") || url.startsWith("/mcp");
 }
 
 interface AuthenticatedSession {
@@ -385,6 +394,27 @@ app.patch("/api/snapshot/item-note", async (request, response) => {
   }
 });
 
+app.use(
+  "/api/agent-tokens",
+  createAgentTokenRouter({
+    store: agentTokenStore,
+    authenticate: async (request, response) =>
+      (await requireAuthenticatedSession(request, response))?.session.user.id ??
+      null,
+  }),
+);
+
+// Read-only MCP endpoint for AI agents, authenticated with agent tokens.
+// See docs/agent-access.md.
+app.use(
+  "/mcp",
+  createMcpRouter({
+    verifier: createAgentTokenVerifier(agentTokenStore),
+    loadSnapshot: async (userId) =>
+      (await getLatestSnapshotRow(userId))?.snapshot ?? null,
+  }),
+);
+
 export default app;
 export { ensureServerReady };
 
@@ -461,6 +491,7 @@ async function initializeDatabase() {
     CREATE INDEX IF NOT EXISTS snapshot_history_user_version_idx
       ON snapshot_history (kakao_user_id, server_version DESC);
   `);
+  await pool.query(AGENT_TOKENS_SCHEMA_SQL);
 }
 
 async function getKakaoTokenRecord(

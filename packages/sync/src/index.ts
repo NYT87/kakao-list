@@ -1,11 +1,14 @@
 import type {
+  AgentToken,
   CloudSession,
   CloudSyncClient,
+  CreateAgentTokenInput,
+  CreatedAgentToken,
   ExchangeKakaoCodeInput,
   MockAuthInput,
   PullSnapshotResult,
-  PushSnapshotListInput,
   PushSnapshotInput,
+  PushSnapshotListInput,
   PushSnapshotResult,
   UpdateLocalNoteInput,
 } from "@kakao-lists/domain";
@@ -105,6 +108,40 @@ export class HttpCloudSyncClient implements CloudSyncClient {
     return parseJson<PushSnapshotResult>(response);
   }
 
+  async listAgentTokens(): Promise<AgentToken[]> {
+    const response = await this.request(`${this.baseUrl}/api/agent-tokens`, {
+      headers: withAuthHeaders(this.getAuthToken),
+    });
+
+    return (await parseJson<{ tokens: AgentToken[] }>(response)).tokens;
+  }
+
+  async createAgentToken(
+    input: CreateAgentTokenInput,
+  ): Promise<CreatedAgentToken> {
+    const response = await this.request(`${this.baseUrl}/api/agent-tokens`, {
+      method: "POST",
+      headers: withAuthHeaders(this.getAuthToken, {
+        "Content-Type": "application/json",
+      }),
+      body: JSON.stringify(input),
+    });
+
+    return parseJson<CreatedAgentToken>(response);
+  }
+
+  async revokeAgentToken(id: string): Promise<void> {
+    const response = await this.request(
+      `${this.baseUrl}/api/agent-tokens/${encodeURIComponent(id)}`,
+      {
+        method: "DELETE",
+        headers: withAuthHeaders(this.getAuthToken),
+      },
+    );
+
+    await ensureOk(response);
+  }
+
   private async request(
     input: RequestInfo | URL,
     init?: RequestInit,
@@ -133,14 +170,17 @@ function withAuthHeaders(
 }
 
 async function parseJson<T>(response: Response): Promise<T> {
+  await ensureOk(response);
+  return (await response.json()) as T;
+}
+
+async function ensureOk(response: Response) {
   if (!response.ok) {
     const text = await response.text();
     throw new Error(
       text || `Sync request failed with status ${response.status}`,
     );
   }
-
-  return (await response.json()) as T;
 }
 
 function toReadableNetworkError(baseUrl: string, error: unknown) {

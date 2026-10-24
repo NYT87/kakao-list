@@ -1,4 +1,3 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
   CloudSession,
   FavoriteList,
@@ -11,6 +10,8 @@ import {
 } from "@kakao-lists/kakao";
 import { LocalStorageFavoriteListsRepository } from "@kakao-lists/storage";
 import { HttpCloudSyncClient } from "@kakao-lists/sync";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { AgentAccessPanel } from "./AgentAccessPanel";
 import {
   requestPwaUpdate,
   subscribeToPwaUpdateAvailability,
@@ -798,6 +799,15 @@ export default function App() {
                 </li>
               </ul>
             </article>
+
+            {cloudSync ? (
+              <AgentAccessPanel
+                client={cloudSync}
+                formatDate={formatDate}
+                mcpUrl={`${syncServerUrl.replace(/\/+$/, "")}/mcp`}
+                onNotify={setToastMessage}
+              />
+            ) : null}
           </div>
         </section>
       ) : isListPage ? (

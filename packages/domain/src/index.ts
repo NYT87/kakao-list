@@ -89,6 +89,29 @@ export interface UpdateLocalNoteInput {
   localNote: string;
 }
 
+/** An AI agent access token as listed in the PWA. The secret is never included. */
+export interface AgentToken {
+  id: string;
+  name: string;
+  tokenHint: string;
+  scopes: string[];
+  status: "active" | "expired";
+  createdAt: string;
+  expiresAt: string;
+  lastUsedAt: string | null;
+}
+
+export interface CreateAgentTokenInput {
+  name: string;
+  expiresInDays?: 30 | 90 | 365;
+}
+
+export interface CreatedAgentToken {
+  /** Shown to the user once; only its hash is stored on the server. */
+  token: string;
+  agentToken: AgentToken;
+}
+
 export interface SyncAdapter {
   syncFavoriteLists(input: { authCode: string }): Promise<SyncSnapshot>;
 }
@@ -101,6 +124,9 @@ export interface CloudSyncClient {
   pushSnapshotList(input: PushSnapshotListInput): Promise<PushSnapshotResult>;
   pullLatestSnapshot(): Promise<PullSnapshotResult>;
   updateLocalNote(input: UpdateLocalNoteInput): Promise<PushSnapshotResult>;
+  listAgentTokens(): Promise<AgentToken[]>;
+  createAgentToken(input: CreateAgentTokenInput): Promise<CreatedAgentToken>;
+  revokeAgentToken(id: string): Promise<void>;
 }
 
 export function createMockSyncAdapter(): SyncAdapter {

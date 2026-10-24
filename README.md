@@ -82,6 +82,28 @@ This path is intentionally experimental:
 - it can break when Kakao changes the site
 - it is distinct from the public Kakao Login REST flow already used for your sync-server identity
 
+## AI Agents (MCP)
+
+The sync server exposes a read-only [MCP](https://modelcontextprotocol.io) endpoint at `/mcp`, so AI agents can answer questions about a user's saved places and notes. Tools: `list_lists`, `get_list`, `search_places`, `get_place`.
+
+1. Open the web app, go to **Settings → AI Assistants → Connect an assistant**, and create a connection key (shown once; **Setup details** has the server address and a ready-made Claude Code command).
+2. Connect your agent with the server URL and the token, e.g. for Claude Code:
+
+```bash
+claude mcp add --transport http kakao-lists https://<sync-server>/mcp \
+  --header "Authorization: Bearer kl_pat_…"
+```
+
+Tokens are read-only, expire after 30, 90 or 365 days, and can be disconnected from the same screen. Design and roadmap (Kakao sign-in for agents, agent-triggered sync): [docs/agent-access.md](docs/agent-access.md).
+
+## Tests
+
+```bash
+pnpm test
+# Include the Postgres integration tests (uses a temporary schema):
+TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5432/kakao_lists pnpm test
+```
+
 ## Local Mock Auth
 
 For local development without real Kakao credentials:

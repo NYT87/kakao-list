@@ -915,3 +915,172 @@ h3 {
     border-top: 1px solid var(--line);
   }
 }
+
+.agent-panel {
+  grid-column: 1 / -1;
+}
+
+.hero-actions.compact.agent-actions {
+  margin: 18px 0 0;
+}
+
+.agent-field {
+  display: grid;
+  gap: 8px;
+}
+
+.agent-field span {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.agent-form {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+  margin-top: 18px;
+}
+
+.agent-input {
+  display: block;
+  width: 100%;
+  min-height: 48px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--input-bg);
+  padding: 0 14px;
+  color: var(--text);
+  font: inherit;
+}
+
+.agent-input:focus {
+  border-color: var(--primary-strong);
+}
+
+/* The global focus ring only covers button, a and input; include select. */
+.agent-input:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.agent-created {
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+  padding: 16px;
+  border-radius: 12px;
+  border: 1px solid var(--status-ready-line);
+  background: var(--panel-muted);
+}
+
+.agent-created .hero-actions.compact {
+  margin: 0;
+}
+
+.agent-created-copy {
+  margin: 0;
+  color: var(--muted);
+}
+
+.agent-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+/* Keep the native disclosure arrow; padding gives a 44px tap target. */
+.agent-details summary {
+  padding: 12px 0;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.agent-details summary:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.agent-details[open] summary {
+  margin-bottom: 8px;
+}
+
+.agent-details code {
+  overflow-wrap: anywhere;
+}
+
+.agent-created-title {
+  margin: 0;
+  font-weight: 600;
+}
+
+.agent-secret {
+  display: block;
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--input-bg);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+/* Same treatment as .status-card.is-error: thin tinted outline, full-contrast text. */
+.agent-feedback.is-error {
+  margin: 12px 0 0;
+  padding: 10px 14px;
+  border: 1px solid var(--status-error-line);
+  border-radius: 12px;
+  background: var(--status-bg);
+  color: var(--text);
+}
+
+.agent-list-title {
+  margin: 24px 0 8px;
+  font-size: 1rem;
+}
+
+.agent-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.agent-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+}
+
+.agent-row-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.agent-row-copy span {
+  color: var(--muted);
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 760px) {
+  .agent-form {
+    grid-template-columns: 1fr;
+  }
+
+  .agent-form-actions {
+    flex-direction: column;
+  }
+
+  .agent-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
