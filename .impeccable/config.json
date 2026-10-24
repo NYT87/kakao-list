@@ -1,0 +1,14 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "overused-font",
+        "value": "space grotesk",
+        "createdAt": "2026-10-24T02:07:41.951Z",
+        "reason": "user confirmed: keeping the existing app font (2026-10-24)"
+      }
+    ]
+  }
+}
