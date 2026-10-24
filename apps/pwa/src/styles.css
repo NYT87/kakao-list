@@ -989,6 +989,30 @@ h3 {
   gap: 12px;
 }
 
+.agent-steps {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding-left: 20px;
+}
+
+/* Text-style secondary action; min-height keeps a 44px tap target. */
+.agent-link {
+  justify-self: start;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.agent-link:hover {
+  color: var(--text);
+}
+
 /* Keep the native disclosure arrow; padding gives a 44px tap target. */
 .agent-details summary {
   padding: 12px 0;
@@ -1027,6 +1051,10 @@ h3 {
 }
 
 /* Same treatment as .status-card.is-error: thin tinted outline, full-contrast text. */
+.agent-steps .agent-secret {
+  margin-top: 8px;
+}
+
 .agent-feedback.is-error {
   margin: 12px 0 0;
   padding: 10px 14px;

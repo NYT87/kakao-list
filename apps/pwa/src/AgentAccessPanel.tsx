@@ -1,4 +1,5 @@
 import type {
+  AgentConnection,
   AgentToken,
   CloudSyncClient,
   CreateAgentTokenInput,
@@ -7,6 +8,12 @@ import type {
 import { useCallback, useEffect, useState } from "react";
 
 type Lifetime = NonNullable<CreateAgentTokenInput["expiresInDays"]>;
+type View = "collapsed" | "signIn" | "keyForm";
+
+/** One row in "Connected assistants": a Kakao sign-in or a connection key. */
+type ConnectedAssistant =
+  | { kind: "signIn"; createdAt: string; connection: AgentConnection }
+  | { kind: "key"; createdAt: string; token: AgentToken };
 
 const LIFETIME_OPTIONS: Array<{ days: Lifetime; label: string }> = [
   { days: 30, label: "30 days" },
@@ -23,16 +30,21 @@ interface AgentAccessPanelProps {
 }
 
 // Lets the user connect AI assistants (Claude, Cursor, …) to their lists
-// through the read-only MCP endpoint. Starts collapsed because most users
-// never connect one. See docs/agent-access.md.
+// through the read-only MCP endpoint. The main path is adding the server
+// address in the assistant and signing in with Kakao; connection keys are the
+// fallback for assistants without sign-in support. Starts collapsed because
+// most users never connect one. See docs/agent-access.md.
 export function AgentAccessPanel({
   client,
   mcpUrl,
   formatDate,
   onNotify,
 }: AgentAccessPanelProps) {
-  const [tokens, setTokens] = useState<AgentToken[] | null>(null);
-  const [isFormOpen, setIsFormOpen] = useState(false);
+  const [assistants, setAssistants] = useState<ConnectedAssistant[] | null>(
+    null,
+  );
+  const [signInAvailable, setSignInAvailable] = useState(false);
+  const [view, setView] = useState<View>("collapsed");
   const [name, setName] = useState("");
   const [lifetime, setLifetime] = useState<Lifetime>(90);
   const [created, setCreated] = useState<CreatedAgentToken | null>(null);
@@ -46,21 +58,59 @@ export function AgentAccessPanel({
     );
   }, []);
 
-  const loadTokens = useCallback(async () => {
+  const loadAssistants = useCallback(async () => {
     try {
-      setTokens(await client.listAgentTokens());
+      const available = await client.isAgentSignInAvailable();
+      const [tokens, connections] = await Promise.all([
+        client.listAgentTokens(),
+        available ? client.listAgentConnections() : Promise.resolve([]),
+      ]);
+      setSignInAvailable(available);
+      setAssistants(
+        [
+          ...connections.map(
+            (connection): ConnectedAssistant => ({
+              kind: "signIn",
+              createdAt: connection.createdAt,
+              connection,
+            }),
+          ),
+          ...tokens.map(
+            (token): ConnectedAssistant => ({
+              kind: "key",
+              createdAt: token.createdAt,
+              token,
+            }),
+          ),
+        ].sort((left, right) => right.createdAt.localeCompare(left.createdAt)),
+      );
     } catch (cause) {
-      setTokens([]);
+      setAssistants([]);
       showError(cause, "Could not load your connected assistants.");
     }
   }, [client, showError]);
 
   useEffect(() => {
-    void loadTokens();
-  }, [loadTokens]);
+    void loadAssistants();
+  }, [loadAssistants]);
 
-  const hasConnections = (tokens?.length ?? 0) > 0;
-  const isExpanded = isFormOpen || hasConnections || created !== null;
+  const hasConnections = (assistants?.length ?? 0) > 0;
+
+  function openConnect() {
+    setView(signInAvailable ? "signIn" : "keyForm");
+    setError(null);
+  }
+
+  function closeConnect() {
+    setView("collapsed");
+    setName("");
+    setError(null);
+  }
+
+  async function finishSignIn() {
+    closeConnect();
+    await loadAssistants();
+  }
 
   async function createToken(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -74,8 +124,8 @@ export function AgentAccessPanel({
       });
       setCreated(result);
       setName("");
-      setIsFormOpen(false);
-      await loadTokens();
+      setView("collapsed");
+      await loadAssistants();
     } catch (cause) {
       showError(cause, "Could not create the connection key.");
     } finally {
@@ -84,10 +134,14 @@ export function AgentAccessPanel({
     }
   }
 
-  async function revokeToken(token: AgentToken) {
+  async function disconnect(assistant: ConnectedAssistant) {
+    const label =
+      assistant.kind === "signIn"
+        ? assistant.connection.clientName
+        : assistant.token.name;
     if (
       !window.confirm(
-        `Disconnect "${token.name}"? It will stop being able to read your lists right away.`,
+        `Disconnect "${label}"? It will stop being able to read your lists right away.`,
       )
     ) {
       return;
@@ -96,12 +150,16 @@ export function AgentAccessPanel({
     setBusy(true);
     setError(null);
     try {
-      await client.revokeAgentToken(token.id);
-      if (created?.agentToken.id === token.id) {
-        setCreated(null);
+      if (assistant.kind === "signIn") {
+        await client.revokeAgentConnection(assistant.connection.id);
+      } else {
+        await client.revokeAgentToken(assistant.token.id);
+        if (created?.agentToken.id === assistant.token.id) {
+          setCreated(null);
+        }
       }
-      await loadTokens();
-      onNotify(`"${token.name}" disconnected`);
+      await loadAssistants();
+      onNotify(`"${label}" disconnected`);
     } catch (cause) {
       showError(cause, "Could not disconnect the assistant.");
     } finally {
@@ -123,17 +181,6 @@ export function AgentAccessPanel({
     }
   }
 
-  function openForm() {
-    setIsFormOpen(true);
-    setError(null);
-  }
-
-  function cancelForm() {
-    setIsFormOpen(false);
-    setName("");
-    setError(null);
-  }
-
   return (
     <article className="panel agent-panel">
       <h2>AI Assistants</h2>
@@ -142,17 +189,64 @@ export function AgentAccessPanel({
         saved places. It can read your lists and notes but cannot change them.
       </p>
 
-      {!isExpanded ? (
+      {view === "collapsed" && !created ? (
         <div className="hero-actions compact agent-actions">
           <button
             className="button secondary"
-            disabled={tokens === null}
-            onClick={openForm}
+            disabled={assistants === null || busy}
+            onClick={openConnect}
             type="button"
           >
-            Connect an assistant
+            {hasConnections
+              ? "Connect another assistant"
+              : "Connect an assistant"}
           </button>
         </div>
+      ) : null}
+
+      {view === "signIn" ? (
+        <section
+          className="agent-created"
+          aria-labelledby="agent-sign-in-title"
+        >
+          <p className="agent-created-title" id="agent-sign-in-title">
+            Add Kakao Lists to your assistant
+          </p>
+          <ol className="agent-steps">
+            <li>
+              In your assistant, add a custom connector with this address:
+              <code className="agent-secret">{mcpUrl}</code>
+            </li>
+            <li>When it asks, sign in with Kakao.</li>
+            <li>Ask it about your saved places.</li>
+          </ol>
+          <div className="hero-actions compact">
+            <button
+              className="button primary"
+              onClick={() => copy(mcpUrl, "Address copied")}
+              type="button"
+            >
+              Copy address
+            </button>
+            <button
+              className="button secondary"
+              onClick={() => void finishSignIn()}
+              type="button"
+            >
+              Done
+            </button>
+          </div>
+          <button
+            className="agent-link"
+            onClick={() => {
+              setView("keyForm");
+              setError(null);
+            }}
+            type="button"
+          >
+            My assistant needs a key instead
+          </button>
+        </section>
       ) : null}
 
       {created ? (
@@ -221,68 +315,57 @@ export function AgentAccessPanel({
         </section>
       ) : null}
 
-      {isExpanded && !created ? (
-        isFormOpen || !hasConnections ? (
-          <form className="agent-form" onSubmit={createToken}>
-            <label className="agent-field">
-              <span>Assistant name</span>
-              <input
-                className="agent-input"
-                disabled={busy}
-                maxLength={60}
-                onChange={(event) => setName(event.target.value)}
-                placeholder="e.g. Claude on my laptop"
-                required
-                value={name}
-              />
-            </label>
-            <label className="agent-field">
-              <span>Key expires after</span>
-              <select
-                className="agent-input"
-                disabled={busy}
-                onChange={(event) =>
-                  setLifetime(Number(event.target.value) as Lifetime)
-                }
-                value={lifetime}
-              >
-                {LIFETIME_OPTIONS.map((option) => (
-                  <option key={option.days} value={option.days}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <div className="agent-form-actions">
-              <button
-                className="button primary"
-                disabled={busy || !name.trim()}
-                type="submit"
-              >
-                {creating ? "Creating…" : "Create connection key"}
-              </button>
-              <button
-                className="button secondary"
-                disabled={busy}
-                onClick={cancelForm}
-                type="button"
-              >
-                Cancel
-              </button>
-            </div>
-          </form>
-        ) : (
-          <div className="hero-actions compact agent-actions">
+      {view === "keyForm" && !created ? (
+        <form className="agent-form" onSubmit={createToken}>
+          <label className="agent-field">
+            <span>Assistant name</span>
+            <input
+              className="agent-input"
+              disabled={busy}
+              maxLength={60}
+              onChange={(event) => setName(event.target.value)}
+              placeholder="e.g. Claude on my laptop"
+              required
+              value={name}
+            />
+          </label>
+          <label className="agent-field">
+            <span>Key expires after</span>
+            <select
+              className="agent-input"
+              disabled={busy}
+              onChange={(event) =>
+                setLifetime(Number(event.target.value) as Lifetime)
+              }
+              value={lifetime}
+            >
+              {LIFETIME_OPTIONS.map((option) => (
+                <option key={option.days} value={option.days}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="agent-form-actions">
+            <button
+              className="button primary"
+              disabled={busy || !name.trim()}
+              type="submit"
+            >
+              {creating ? "Creating…" : "Create connection key"}
+            </button>
             <button
               className="button secondary"
               disabled={busy}
-              onClick={openForm}
+              onClick={() =>
+                signInAvailable ? setView("signIn") : closeConnect()
+              }
               type="button"
             >
-              Connect another assistant
+              {signInAvailable ? "Back" : "Cancel"}
             </button>
           </div>
-        )
+        </form>
       ) : null}
 
       {error ? (
@@ -291,30 +374,52 @@ export function AgentAccessPanel({
         </p>
       ) : null}
 
-      {hasConnections && tokens ? (
+      {hasConnections && assistants ? (
         <>
           <h3 className="agent-list-title">Connected assistants</h3>
           <ul className="agent-list">
-            {tokens.map((token) => (
-              <li className="agent-row" key={token.id}>
-                <div className="agent-row-copy">
-                  <strong>{token.name}</strong>
-                  <span>
-                    Key ending in {token.tokenHint.slice(-4)} ·{" "}
-                    {token.status === "expired"
-                      ? `Expired ${formatDate(token.expiresAt)}`
-                      : `Expires ${formatDate(token.expiresAt)}`}
-                  </span>
-                  <span>
-                    {token.lastUsedAt
-                      ? `Last used ${formatDate(token.lastUsedAt)}`
-                      : "Not used yet"}
-                  </span>
-                </div>
+            {assistants.map((assistant) => (
+              <li
+                className="agent-row"
+                key={`${assistant.kind}:${
+                  assistant.kind === "signIn"
+                    ? assistant.connection.id
+                    : assistant.token.id
+                }`}
+              >
+                {assistant.kind === "signIn" ? (
+                  <div className="agent-row-copy">
+                    <strong>{assistant.connection.clientName}</strong>
+                    <span>
+                      Signed in with Kakao · Connected{" "}
+                      {formatDate(assistant.connection.createdAt)}
+                    </span>
+                    <span>
+                      {assistant.connection.lastUsedAt
+                        ? `Last used ${formatDate(assistant.connection.lastUsedAt)}`
+                        : "Not used yet"}
+                    </span>
+                  </div>
+                ) : (
+                  <div className="agent-row-copy">
+                    <strong>{assistant.token.name}</strong>
+                    <span>
+                      Key ending in {assistant.token.tokenHint.slice(-4)} ·{" "}
+                      {assistant.token.status === "expired"
+                        ? `Expired ${formatDate(assistant.token.expiresAt)}`
+                        : `Expires ${formatDate(assistant.token.expiresAt)}`}
+                    </span>
+                    <span>
+                      {assistant.token.lastUsedAt
+                        ? `Last used ${formatDate(assistant.token.lastUsedAt)}`
+                        : "Not used yet"}
+                    </span>
+                  </div>
+                )}
                 <button
                   className="button secondary"
                   disabled={busy}
-                  onClick={() => revokeToken(token)}
+                  onClick={() => void disconnect(assistant)}
                   type="button"
                 >
                   Disconnect

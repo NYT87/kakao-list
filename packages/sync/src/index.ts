@@ -1,4 +1,5 @@
 import type {
+  AgentConnection,
   AgentToken,
   CloudSession,
   CloudSyncClient,
@@ -133,6 +134,39 @@ export class HttpCloudSyncClient implements CloudSyncClient {
   async revokeAgentToken(id: string): Promise<void> {
     const response = await this.request(
       `${this.baseUrl}/api/agent-tokens/${encodeURIComponent(id)}`,
+      {
+        method: "DELETE",
+        headers: withAuthHeaders(this.getAuthToken),
+      },
+    );
+
+    await ensureOk(response);
+  }
+
+  async isAgentSignInAvailable(): Promise<boolean> {
+    try {
+      const response = await this.request(
+        `${this.baseUrl}/.well-known/oauth-protected-resource/mcp`,
+      );
+      return response.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  async listAgentConnections(): Promise<AgentConnection[]> {
+    const response = await this.request(
+      `${this.baseUrl}/api/agent-connections`,
+      { headers: withAuthHeaders(this.getAuthToken) },
+    );
+
+    return (await parseJson<{ connections: AgentConnection[] }>(response))
+      .connections;
+  }
+
+  async revokeAgentConnection(id: string): Promise<void> {
+    const response = await this.request(
+      `${this.baseUrl}/api/agent-connections/${encodeURIComponent(id)}`,
       {
         method: "DELETE",
         headers: withAuthHeaders(this.getAuthToken),

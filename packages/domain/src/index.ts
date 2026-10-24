@@ -101,6 +101,17 @@ export interface AgentToken {
   lastUsedAt: string | null;
 }
 
+/** An assistant connected by signing in with Kakao (OAuth). */
+export interface AgentConnection {
+  id: string;
+  clientName: string;
+  scopes: string[];
+  status: "active" | "expired";
+  createdAt: string;
+  expiresAt: string;
+  lastUsedAt: string | null;
+}
+
 export interface CreateAgentTokenInput {
   name: string;
   expiresInDays?: 30 | 90 | 365;
@@ -127,6 +138,10 @@ export interface CloudSyncClient {
   listAgentTokens(): Promise<AgentToken[]>;
   createAgentToken(input: CreateAgentTokenInput): Promise<CreatedAgentToken>;
   revokeAgentToken(id: string): Promise<void>;
+  /** Whether the server offers "sign in with Kakao" to AI assistants. */
+  isAgentSignInAvailable(): Promise<boolean>;
+  listAgentConnections(): Promise<AgentConnection[]>;
+  revokeAgentConnection(id: string): Promise<void>;
 }
 
 export function createMockSyncAdapter(): SyncAdapter {
