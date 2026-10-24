@@ -7,7 +7,12 @@ For complex tasks (3+ steps, research, projects):
 1. Read skill: `cat ~/.codex/skills/planning-with-files/SKILL.md`
 2. Create task_plan.md, findings.md, progress.md in your project directory
 3. Follow 3-file pattern throughout the task
+4. These are working files: they are gitignored and must not be committed. When the task is done, move durable decisions, constraints and follow-ups into `docs/` (the feature's design doc, or `docs/architecture-decisions.md`), then delete the three files.
 </IMPORTANT>
+
+## Dependencies
+
+Only use package versions published at least 14 days ago. pnpm enforces this through `minimumReleaseAge` in `pnpm-workspace.yaml`; don't bypass it with `minimumReleaseAgeExclude` unless asked. Pin GitHub Actions to the commit SHA of a release that is at least 14 days old. Details: `docs/architecture-decisions.md` (Tooling and dependencies).
 
 ## Design Context
 

@@ -11,3 +11,8 @@ coverage
 *.sqlite
 
 .secrets
+
+# Planning-with-files working notes (durable content belongs in docs/)
+task_plan.md
+findings.md
+progress.md

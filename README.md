@@ -25,6 +25,13 @@ packages/
   sync/         HTTP client for the sync server
 ```
 
+More detail lives in [`docs/`](docs):
+
+- [Architecture decisions](docs/architecture-decisions.md): why the sync, auth and build setup work the way they do, plus known limitations
+- [Kakao Maps private endpoints](docs/kakao-maps-private-api.md) used by the extension
+- [Agent access (MCP)](docs/agent-access.md) design and status
+- [Extension public key](docs/extension-public-key.md)
+
 ## Important Constraint
 
 The extension and the PWA do not naturally share a single local SQLite file in the browser. They run under different origins and storage sandboxes. This scaffold therefore:
