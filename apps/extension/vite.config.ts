@@ -4,7 +4,7 @@ import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 
 export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, path.resolve(__dirname, "../.."), "");
+  const env = loadEnv(mode, path.resolve(import.meta.dirname, "../.."), "");
   const extensionPublicKey = env.EXTENSION_PUBLIC_KEY?.trim();
   const syncServerPermission = toHostPermissionPattern(
     env.VITE_SYNC_SERVER_URL,
@@ -26,11 +26,11 @@ export default defineConfig(({ mode }) => {
           }
 
           const sourceManifestPath = path.resolve(
-            __dirname,
+            import.meta.dirname,
             "public/manifest.json",
           );
           const distManifestPath = path.resolve(
-            __dirname,
+            import.meta.dirname,
             "dist/manifest.json",
           );
           const manifest = JSON.parse(

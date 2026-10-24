@@ -10,8 +10,8 @@
   },
   "dependencies": {
     "@kakao-lists/domain": "workspace:*",
-    "cors": "^2.8.5",
-    "express": "^5.1.0",
-    "pg": "^8.16.3"
+    "cors": "^2.8.6",
+    "express": "^5.3.0",
+    "pg": "^8.23.1"
   }
 }

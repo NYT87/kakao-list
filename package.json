@@ -7,7 +7,7 @@
     "url": "https://github.com/NYT87/kakao-list.git"
   },
   "homepage": "https://github.com/NYT87/kakao-list",
-  "packageManager": "pnpm@10.18.3",
+  "packageManager": "pnpm@10.34.6",
   "scripts": {
     "dev": "pnpm --parallel --filter @kakao-lists/server --filter @kakao-lists/pwa dev",
     "dev:pwa": "pnpm --filter @kakao-lists/pwa dev",
@@ -23,17 +23,17 @@
     "format:write": "biome format --write ."
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.4.15",
-    "@types/chrome": "^0.1.29",
+    "@biomejs/biome": "^2.5.15",
+    "@types/chrome": "^0.3.5",
     "@types/cors": "^2.8.19",
-    "@types/express": "^5.0.3",
-    "@types/pg": "^8.15.5",
-    "@types/react": "^19.2.0",
-    "@types/react-dom": "^19.2.0",
-    "@vitejs/plugin-react": "^5.1.0",
-    "esbuild": "^0.25.11",
-    "tsx": "^4.20.6",
-    "typescript": "^5.9.3",
-    "vite": "^7.1.12"
+    "@types/express": "^5.0.6",
+    "@types/pg": "^8.23.1",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.4"
   }
 }
