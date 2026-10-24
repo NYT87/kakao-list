@@ -109,6 +109,10 @@ describe("Postgres OAuth store", { skip: !databaseUrl }, () => {
     });
     await pool.query(OAUTH_SCHEMA_SQL);
     store = createPostgresOAuthStore(pool);
+    await store.saveClient(
+      { client_id: "client-1", redirect_uris: ["http://localhost:4567/cb"] },
+      now,
+    );
   });
 
   after(async () => {
@@ -129,7 +133,83 @@ describe("Postgres OAuth store", { skip: !databaseUrl }, () => {
     assert.equal(await store.getClient("missing"), null);
   });
 
-  it("consumes a pending authorization once and only before it expires", async () => {
+  it("lets one caller claim a pending sign-in, which stays stored until completed", async () => {
+    const pending = {
+      idHash: hash(),
+      clientId: "client-1",
+      clientName: "Claude",
+      redirectUri: "http://localhost:4567/cb",
+      codeChallenge: "challenge",
+      state: "client-state",
+      scopes: ["lists:read"],
+      resource: "https://api.example/mcp",
+      createdAt: now,
+      expiresAt: at(10 * MINUTE),
+    };
+    await store.savePendingAuthorization(pending);
+
+    const claims = await Promise.all(
+      Array.from({ length: 5 }, () =>
+        store.claimPendingAuthorization(pending.idHash, now),
+      ),
+    );
+
+    assert.equal(claims.filter(Boolean).length, 1);
+    assert.equal(claims.find(Boolean)?.state, "client-state");
+    // Claimed, not consumed: it still protects its client from cleanup.
+    assert.ok(await store.findPendingAuthorization(pending.idHash, now));
+    assert.ok(
+      await store.completePendingAuthorization(pending.idHash, now, null),
+    );
+    assert.equal(
+      await store.claimPendingAuthorization(pending.idHash, now),
+      null,
+    );
+  });
+
+  it("refuses to save a pending sign-in for a client that no longer exists", async () => {
+    const idHash = hash();
+
+    const saved = await store.savePendingAuthorization({
+      idHash,
+      clientId: "deleted-client",
+      clientName: "Claude",
+      redirectUri: "http://localhost:4567/cb",
+      codeChallenge: "challenge",
+      state: null,
+      scopes: ["lists:read"],
+      resource: "https://api.example/mcp",
+      createdAt: now,
+      expiresAt: at(10 * MINUTE),
+    });
+
+    assert.equal(saved, false);
+    assert.equal(await store.findPendingAuthorization(idHash, now), null);
+  });
+
+  it("does not complete a pending sign-in nobody claimed", async () => {
+    const idHash = hash();
+    await store.savePendingAuthorization({
+      idHash,
+      clientId: "client-1",
+      clientName: "Claude",
+      redirectUri: "http://localhost:4567/cb",
+      codeChallenge: "challenge",
+      state: null,
+      scopes: ["lists:read"],
+      resource: "https://api.example/mcp",
+      createdAt: now,
+      expiresAt: at(10 * MINUTE),
+    });
+
+    assert.equal(
+      await store.completePendingAuthorization(idHash, now, null),
+      null,
+    );
+    assert.ok(await store.findPendingAuthorization(idHash, now));
+  });
+
+  it("completes a pending sign-in once, atomically with its code", async () => {
     const pending = {
       clientId: "client-1",
       clientName: "Claude",
@@ -146,14 +226,53 @@ describe("Postgres OAuth store", { skip: !databaseUrl }, () => {
     await store.savePendingAuthorization(fresh);
     await store.savePendingAuthorization(stale);
 
-    const [first, second] = await Promise.all([
-      store.consumePendingAuthorization(fresh.idHash, now),
-      store.consumePendingAuthorization(fresh.idHash, now),
-    ]);
-    assert.equal([first, second].filter(Boolean).length, 1);
-    assert.equal((first ?? second)?.state, "client-state");
+    // Looking it up does not consume it.
     assert.equal(
-      await store.consumePendingAuthorization(stale.idHash, at(11 * MINUTE)),
+      (await store.findPendingAuthorization(fresh.idHash, now))?.state,
+      "client-state",
+    );
+    assert.ok(await store.findPendingAuthorization(fresh.idHash, now));
+    assert.ok(await store.claimPendingAuthorization(fresh.idHash, now));
+
+    const codeFor = (codeHash: string) => ({
+      codeHash,
+      clientId: "client-1",
+      clientName: "Claude",
+      kakaoUserId: "user-1",
+      redirectUri: "http://localhost:4567/cb",
+      codeChallenge: "challenge",
+      scopes: ["lists:read"],
+      resource: "https://api.example/mcp",
+      createdAt: now,
+      expiresAt: at(MINUTE),
+    });
+    const codeHashes = [hash(), hash()];
+    const results = await Promise.all(
+      codeHashes.map((codeHash) =>
+        store.completePendingAuthorization(
+          fresh.idHash,
+          now,
+          codeFor(codeHash),
+        ),
+      ),
+    );
+
+    assert.equal(results.filter(Boolean).length, 1);
+    const stored = await Promise.all(
+      codeHashes.map((codeHash) => store.findAuthorizationCode(codeHash)),
+    );
+    assert.equal(stored.filter(Boolean).length, 1);
+    assert.equal(await store.findPendingAuthorization(fresh.idHash, now), null);
+    assert.equal(
+      await store.completePendingAuthorization(
+        stale.idHash,
+        at(11 * MINUTE),
+        null,
+      ),
+      null,
+    );
+    assert.equal(
+      await store.findPendingAuthorization(stale.idHash, at(11 * MINUTE)),
       null,
     );
   });

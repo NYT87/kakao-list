@@ -17,6 +17,7 @@ import { createAgentTokenVerifier, issueAgentToken } from "./agentTokens.js";
 import { createAgentVerifier } from "./agentVerifier.js";
 import { createKakaoOAuth, OAUTH_MAX_ACTIVE_GRANTS } from "./kakaoOAuth.js";
 import { createMcpRouter } from "./mcpServer.js";
+import type { OAuthStore } from "./oauthStore.js";
 import { createInMemoryAgentTokenStore } from "./testing/inMemoryAgentTokenStore.js";
 import { createInMemoryOAuthStore } from "./testing/inMemoryOAuthStore.js";
 
@@ -66,8 +67,23 @@ describe("OAuth sign-in with Kakao for MCP clients", () => {
   let baseUrl: string;
   let clock: Date;
   let failKakao = false;
+  // When set, identifyKakaoUser records whether this sign-in's pending
+  // authorization still exists while Kakao is contacted.
+  let watchState: string | null = null;
+  let pendingDuringKakao: boolean | null = null;
+  // When set, Kakao calls wait for it, so tests can overlap callbacks.
+  let kakaoGate: Promise<void> | null = null;
+  let kakaoCalls = 0;
   const kakaoCodes = new Map<string, string>();
-  const store = createInMemoryOAuthStore();
+  const baseStore = createInMemoryOAuthStore();
+  // Simulates cleanup deleting the client between the SDK's lookup and the
+  // pending sign-in being saved.
+  let clientVanishes = false;
+  const store: OAuthStore = {
+    ...baseStore,
+    savePendingAuthorization: async (pending) =>
+      clientVanishes ? false : baseStore.savePendingAuthorization(pending),
+  };
   const patStore = createInMemoryAgentTokenStore();
 
   before(async () => {
@@ -85,6 +101,18 @@ describe("OAuth sign-in with Kakao for MCP clients", () => {
       kakaoAuthorizeEndpoint: KAKAO_AUTHORIZE,
       identifyKakaoUser: async (code, redirectUri) => {
         assert.equal(redirectUri, `${baseUrl}/oauth/kakao/callback`);
+        kakaoCalls += 1;
+        if (kakaoGate) {
+          await kakaoGate;
+        }
+        if (watchState) {
+          const idHash = crypto
+            .createHash("sha256")
+            .update(watchState)
+            .digest("hex");
+          pendingDuringKakao =
+            (await store.findPendingAuthorization(idHash, clock)) !== null;
+        }
         if (failKakao) {
           throw new Error("kakao exploded: secret-internal-detail");
         }
@@ -398,6 +426,22 @@ describe("OAuth sign-in with Kakao for MCP clients", () => {
       assert.equal(cancel.searchParams.get("state"), "client-state-123");
     });
 
+    it("fails right away when the client registration was just cleaned up", async () => {
+      const client = await registerClient();
+      clientVanishes = true;
+      try {
+        const { response, cookie } = await startAuthorization(client.client_id);
+
+        assert.equal(response.status, 302);
+        const location = new URL(response.headers.get("location") as string);
+        assert.equal(location.searchParams.get("error"), "invalid_client");
+        assert.equal(location.searchParams.get("state"), "client-state-123");
+        assert.equal(cookie, "");
+      } finally {
+        clientVanishes = false;
+      }
+    });
+
     it("rejects unsupported scopes with a redirect error", async () => {
       const client = await registerClient();
       const { response } = await startAuthorization(client.client_id, {
@@ -465,6 +509,68 @@ describe("OAuth sign-in with Kakao for MCP clients", () => {
           "code",
         ),
       );
+    });
+
+    it("lets only one of two concurrent callbacks for a sign-in contact Kakao", async () => {
+      const client = await registerClient();
+      const started = await startAuthorization(client.client_id);
+      const state = started.kakaoUrl?.searchParams.get("state") as string;
+      kakaoCodes.set("kakao-duplicate", "user-1");
+      let release = () => {};
+      kakaoGate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const callsBefore = kakaoCalls;
+
+      try {
+        // The first callback is now waiting inside its Kakao exchange.
+        const first = kakaoCallback(state, started.cookie, {
+          code: "kakao-duplicate",
+        });
+        while (kakaoCalls === callsBefore) {
+          await new Promise((resolve) => setTimeout(resolve, 5));
+        }
+        // A duplicate that reached Kakao would block on the gate too.
+        const duplicate = await Promise.race([
+          kakaoCallback(state, started.cookie, { code: "kakao-duplicate" }),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 1000)),
+        ]);
+        release();
+        const winner = await first;
+
+        assert.ok(duplicate, "the duplicate callback waited on Kakao");
+        assert.equal(duplicate.status, 400);
+        assert.equal(winner.status, 302);
+        assert.ok(
+          new URL(winner.headers.get("location") as string).searchParams.get(
+            "code",
+          ),
+        );
+        assert.equal(kakaoCalls - callsBefore, 1);
+      } finally {
+        release();
+        kakaoGate = null;
+      }
+    });
+
+    it("keeps the pending sign-in until the code is issued", async () => {
+      const client = await registerClient();
+      const started = await startAuthorization(client.client_id);
+      const state = started.kakaoUrl?.searchParams.get("state") as string;
+      kakaoCodes.set("kakao-watch", "user-1");
+      watchState = state;
+      try {
+        const callback = await kakaoCallback(state, started.cookie, {
+          code: "kakao-watch",
+        });
+        assert.equal(callback.status, 302);
+      } finally {
+        watchState = null;
+      }
+
+      // While Kakao was contacted, the sign-in was still pending; this keeps
+      // its client safe from cleanup (see maintenance.ts).
+      assert.equal(pendingDuringKakao, true);
     });
 
     it("clears the state cookie", async () => {

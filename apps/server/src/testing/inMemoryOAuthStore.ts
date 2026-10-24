@@ -12,6 +12,7 @@ import {
 export function createInMemoryOAuthStore(): OAuthStore {
   const clients = new Map<string, OAuthClientInformationFull>();
   const pending = new Map<string, PendingAuthorization>();
+  const claimed = new Set<string>();
   const codes = new Map<string, AuthorizationCodeRecord>();
   const grants = new Map<string, OAuthGrantRecord>();
   const tokens = new Map<string, OAuthTokenRecord>();
@@ -38,15 +39,48 @@ export function createInMemoryOAuthStore(): OAuthStore {
           pending.delete(key);
         }
       }
+      if (!clients.has(authorization.clientId)) {
+        return false;
+      }
       pending.set(authorization.idHash, { ...authorization });
+      return true;
     },
 
-    async consumePendingAuthorization(idHash, now) {
+    async findPendingAuthorization(idHash, now) {
       const found = pending.get(idHash);
-      pending.delete(idHash);
       return found && found.expiresAt.getTime() > now.getTime()
         ? { ...found }
         : null;
+    },
+
+    async claimPendingAuthorization(idHash, now) {
+      const found = pending.get(idHash);
+      if (
+        !found ||
+        found.expiresAt.getTime() <= now.getTime() ||
+        claimed.has(idHash)
+      ) {
+        return null;
+      }
+      claimed.add(idHash);
+      return { ...found };
+    },
+
+    async completePendingAuthorization(idHash, now, code) {
+      const found = pending.get(idHash);
+      if (
+        !found ||
+        found.expiresAt.getTime() <= now.getTime() ||
+        !claimed.has(idHash)
+      ) {
+        return null;
+      }
+      pending.delete(idHash);
+      claimed.delete(idHash);
+      if (code) {
+        await this.saveAuthorizationCode(code);
+      }
+      return { ...found };
     },
 
     async saveAuthorizationCode(code) {

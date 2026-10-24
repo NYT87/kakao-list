@@ -56,7 +56,7 @@ API (session-authenticated, used by the PWA):
 
 Known gaps:
 
-- **No rate limiting** on `/mcp` or `/api/agent-tokens`. An in-memory limiter is ineffective on serverless instances; this needs a shared store or platform rules (e.g. Vercel firewall).
+- Rate limits were added later; see [Hardening](#hardening-rate-limits-and-cleanup).
 - Token issuance and revocation are logged with the token id only; there is no persistent audit log.
 
 Implementation notes:
@@ -141,11 +141,53 @@ Decisions:
 
 Known gaps:
 
-- The SDK's rate limits on the OAuth endpoints are in memory, per serverless instance. Stronger limits need a shared store or platform rules.
-- Registered clients are never cleaned up. Registration is rate limited and only known fields are stored, but abandoned registrations accumulate.
+- Rate limits and cleanup of abandoned registrations were added later; see [Hardening](#hardening-rate-limits-and-cleanup).
 - Client ID Metadata Documents are not supported (not in the SDK's server); clients must use dynamic registration.
 
 Verification (2026-10-24): `pnpm test` (119 tests, 20 of them Postgres integration, including an end-to-end run of the MCP SDK client's own OAuth flow), `pnpm typecheck`, `biome check`, all builds, a smoke test of discovery, registration, consent and the 401 challenge against the real server entry point, and Brave screenshots of the consent page, the callback error page and the PWA panel in light and dark mode at desktop and 375 px widths. The Kakao login step itself was not exercised against real Kakao.
+
+## Hardening: rate limits and cleanup
+
+### Rate limits
+
+Counted in Postgres (`rate_limit_buckets`, `apps/server/src/rateLimitStore.ts`) through `express-rate-limit`, so limits hold across serverless instances. Fixed windows; one atomic upsert per hit.
+
+| Where | Key | Limit |
+|---|---|---|
+| `/mcp`, before the token check | client IP | 300 per minute |
+| `/mcp`, after the token check | Kakao user (all of the user's tokens together) | 120 per minute |
+| `/api/agent-tokens`, `/api/agent-connections` | client IP | 60 per minute |
+| `/authorize`, `/token`, `/revoke` | client IP | SDK defaults: 100, 50, 50 per 15 minutes |
+| `/register` | client IP | SDK default: 20 per hour |
+| `/oauth/kakao/callback` | client IP | 30 per 15 minutes |
+
+- Limited requests get `429` with `Retry-After` and the standard `RateLimit` headers (exposed through CORS): a JSON-RPC error on `/mcp`, an HTML page on the callback, plain text on `/api`.
+- **Fail open:** if the store (Postgres) errors, requests pass and the library logs the error. A database outage already fails the request itself, so the limiter should not add a second failure mode.
+- IPv6 clients are grouped by /56 subnet (the library default), since one user can control a whole block.
+- Client IPs come from `trust proxy: 1` (Vercel's single proxy hop).
+
+### Cleanup
+
+`runMaintenance` (`apps/server/src/maintenance.ts`) deletes, in order:
+
+| Data | Deleted when |
+|---|---|
+| Rate limit buckets | their window has ended |
+| Pending sign-ins | expired |
+| OAuth tokens | expired (a replayed expired refresh token is then rejected as unknown) |
+| OAuth grants (with their tokens) | revoked or expired more than 30 days ago |
+| Authorization codes | expired, unless redeemed for a still-live grant (kept for replay detection) |
+| OAuth clients | registered more than 24 hours ago, with no grants left and no sign-in in flight (no pending sign-in and no unexpired code) |
+| Agent tokens | revoked or expired more than 30 days ago |
+
+A sign-in in flight always protects its client. The Kakao callback first claims the pending sign-in (`claimed_at`), which keeps the row stored while Kakao is contacted and lets only that request use the single-use Kakao code; a duplicate callback sees the sign-in as expired. It then swaps the pending sign-in for the authorization code in one transaction, and exchanging the code creates the grant in one transaction. The step before that is coordinated too: saving the pending sign-in share-locks the client row and fails if the client is gone, while cleanup locks candidate clients `FOR UPDATE SKIP LOCKED` (skipping any sign-in that is starting) and re-checks them with a fresh snapshot before deleting. So either the sign-in is saved and its client kept, or cleanup wins and `/authorize` fails right away with `invalid_client`, prompting the client to register again. Disconnected and expired connections stay visible in the web app for 30 days. A client whose registration is deleted gets `invalid_client` and has to register again; MCP clients normally do that by themselves.
+
+It runs:
+
+- **On Vercel:** daily at 03:00 UTC through Vercel Cron (`apps/server/vercel.json`), calling `GET /api/cron/maintenance` with `Authorization: Bearer ${CRON_SECRET}`. The route exists only when `CRON_SECRET` (at least 16 characters) is set; the secret is compared in constant time.
+- **As a long-running process** (`pnpm dev:server`, `node dist/index.js`): every hour.
+
+Verification (2026-10-24): `pnpm test` (149 tests, 34 of them Postgres integration). They cover concurrent hits each counted once, per-user and per-IP limits on `/mcp`, fail-open behaviour, one shared-store limiter per OAuth endpoint, the callback limit page, every cleanup rule including what must be kept (among them a client whose code has not been exchanged yet), the pending sign-in surviving while Kakao is contacted, a duplicate callback never reaching Kakao, cleanup skipping a client whose sign-in is starting, a sign-in failing cleanly when cleanup deleted its client first, a 20-round race of sign-ins against cleanup never leaving a saved sign-in without its client, and the cron route's secret check. A smoke test against the real server showed `RateLimit` headers on `/mcp` and `/register`, buckets in Postgres, and the cron route returning 401 without the secret and running with it.
 
 ## Phase 2 — Authentication via Kakao (OAuth 2.1)
 

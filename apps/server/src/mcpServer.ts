@@ -16,6 +16,7 @@ import {
   summarizeLists,
 } from "./agentQueries.js";
 import { AGENT_SCOPE_LISTS_READ } from "./agentTokens.js";
+import type { McpRateLimits } from "./rateLimits.js";
 
 export type SnapshotLoader = (
   kakaoUserId: string,
@@ -41,6 +42,7 @@ export function createMcpRouter(options: {
   resourceMetadataUrl?: string;
   /** When set, tokens must have been issued for this resource (audience). */
   expectedResource?: URL;
+  rateLimits?: McpRateLimits;
 }): express.Router {
   const router = express.Router();
   const auth = requireBearerAuth({
@@ -50,37 +52,46 @@ export function createMcpRouter(options: {
     expectedResource: options.expectedResource,
   });
 
-  router.post("/", auth, async (request, response) => {
-    const kakaoUserId = getKakaoUserId(request.auth);
-    if (!kakaoUserId) {
-      response.status(401).json(jsonRpcError("Unauthorized"));
-      return;
-    }
+  const beforeAuth = options.rateLimits ? [options.rateLimits.beforeAuth] : [];
+  const afterAuth = options.rateLimits ? [options.rateLimits.afterAuth] : [];
 
-    const server = createListsMcpServer(() =>
-      options.loadSnapshot(kakaoUserId),
-    );
-    const transport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: undefined,
-      enableJsonResponse: true,
-    });
-    response.on("close", () => {
-      void transport.close();
-      void server.close();
-    });
-
-    try {
-      await server.connect(transport);
-      await transport.handleRequest(request, response, request.body);
-    } catch (error) {
-      console.error(
-        `[mcp] request failed: ${error instanceof Error ? error.message : String(error)}`,
-      );
-      if (!response.headersSent) {
-        response.status(500).json(jsonRpcError("Internal server error"));
+  router.post(
+    "/",
+    ...beforeAuth,
+    auth,
+    ...afterAuth,
+    async (request, response) => {
+      const kakaoUserId = getKakaoUserId(request.auth);
+      if (!kakaoUserId) {
+        response.status(401).json(jsonRpcError("Unauthorized"));
+        return;
       }
-    }
-  });
+
+      const server = createListsMcpServer(() =>
+        options.loadSnapshot(kakaoUserId),
+      );
+      const transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: undefined,
+        enableJsonResponse: true,
+      });
+      response.on("close", () => {
+        void transport.close();
+        void server.close();
+      });
+
+      try {
+        await server.connect(transport);
+        await transport.handleRequest(request, response, request.body);
+      } catch (error) {
+        console.error(
+          `[mcp] request failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        if (!response.headersSent) {
+          response.status(500).json(jsonRpcError("Internal server error"));
+        }
+      }
+    },
+  );
 
   router.all("/", (_request, response) => {
     response

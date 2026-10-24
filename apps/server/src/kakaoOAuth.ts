@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import {
+  InvalidClientError,
   InvalidClientMetadataError,
   InvalidGrantError,
   InvalidScopeError,
@@ -22,9 +23,15 @@ import type {
 } from "@modelcontextprotocol/sdk/shared/auth.js";
 import cors from "cors";
 import express from "express";
+import { rateLimit } from "express-rate-limit";
 import { AGENT_SCOPE_LISTS_READ } from "./agentTokens.js";
 import { sendConsentPage, sendErrorPage } from "./oauthPages.js";
-import type { NewOAuthToken, OAuthStore } from "./oauthStore.js";
+import type {
+  NewAuthorizationCode,
+  NewOAuthToken,
+  OAuthStore,
+} from "./oauthStore.js";
+import { type RateLimitStoreFactory, rateLimitOptions } from "./rateLimits.js";
 
 // OAuth 2.1 authorization server for MCP clients (claude.ai, Claude Code,
 // Cursor, …), with Kakao as the identity provider. See docs/agent-access.md.
@@ -69,8 +76,17 @@ export interface KakaoOAuthOptions {
   identifyKakaoUser: (code: string, redirectUri: string) => Promise<string>;
   kakaoAuthorizeEndpoint?: string;
   now?: () => Date;
-  /** Tests disable the SDK's per-IP rate limits. */
-  rateLimit?: false;
+  /**
+   * Per-IP rate limits on every OAuth endpoint. `createStore` supplies a
+   * shared store (Postgres in production); without it each instance counts
+   * in memory. Tests pass `false` to disable limits.
+   */
+  rateLimit?:
+    | false
+    | {
+        createStore?: RateLimitStoreFactory;
+        callbackPerIpPer15Minutes?: number;
+      };
 }
 
 export function createKakaoOAuth(options: KakaoOAuthOptions) {
@@ -158,7 +174,7 @@ export function createKakaoOAuth(options: KakaoOAuthOptions) {
       const requestId = generateToken("");
       const createdAt = now();
       const clientName = displayName(client);
-      await store.savePendingAuthorization({
+      const saved = await store.savePendingAuthorization({
         idHash: hashToken(requestId),
         clientId: client.client_id,
         clientName,
@@ -170,6 +186,13 @@ export function createKakaoOAuth(options: KakaoOAuthOptions) {
         createdAt,
         expiresAt: new Date(createdAt.getTime() + PENDING_AUTHORIZATION_TTL_MS),
       });
+      if (!saved) {
+        // Cleanup removed this registration after the SDK looked it up.
+        // Fail now, not at the token step; the client registers again.
+        throw new InvalidClientError(
+          "This client registration has expired. Register again.",
+        );
+      }
 
       const kakaoUrl = new URL(kakaoAuthorizeEndpoint);
       kakaoUrl.searchParams.set("response_type", "code");
@@ -371,20 +394,41 @@ export function createKakaoOAuth(options: KakaoOAuthOptions) {
     }
 
     try {
-      const pending = stateMatches
-        ? await store.consumePendingAuthorization(hashToken(state), now())
-        : null;
-      if (!pending) {
+      const sendExpired = () =>
         sendErrorPage(
           response,
           400,
           "This sign-in link has expired",
           "It may have been used already or opened in a different browser. Start again from your AI assistant.",
         );
+      const requestHash = hashToken(state);
+      // Claimed, not consumed: only this request may contact Kakao and
+      // complete the sign-in (a duplicate callback sees it expired), and the
+      // row stays in place meanwhile, so its client is never left without a
+      // pending sign-in or a code (which would let cleanup delete it).
+      const pending = stateMatches
+        ? await store.claimPendingAuthorization(requestHash, now())
+        : null;
+      if (!pending) {
+        sendExpired();
         return;
       }
 
-      const redirectToClient = (params: Record<string, string | undefined>) =>
+      // Every outcome completes the claimed sign-in, swapping it for the
+      // code (if any) in one transaction.
+      const finish = async (
+        params: Record<string, string | undefined>,
+        code: NewAuthorizationCode | null,
+      ) => {
+        const completed = await store.completePendingAuthorization(
+          requestHash,
+          now(),
+          code,
+        );
+        if (!completed) {
+          sendExpired();
+          return;
+        }
         response.redirect(
           302,
           buildRedirect(pending.redirectUri, {
@@ -392,13 +436,17 @@ export function createKakaoOAuth(options: KakaoOAuthOptions) {
             state: pending.state ?? undefined,
           }),
         );
+      };
 
       const kakaoCode = request.query.code;
       if (request.query.error || typeof kakaoCode !== "string" || !kakaoCode) {
-        redirectToClient({
-          error: "access_denied",
-          error_description: "Sign-in with Kakao was cancelled.",
-        });
+        await finish(
+          {
+            error: "access_denied",
+            error_description: "Sign-in with Kakao was cancelled.",
+          },
+          null,
+        );
         return;
       }
 
@@ -409,10 +457,13 @@ export function createKakaoOAuth(options: KakaoOAuthOptions) {
         console.error(
           `[oauth] Kakao sign-in failed: ${error instanceof Error ? error.message : String(error)}`,
         );
-        redirectToClient({
-          error: "server_error",
-          error_description: "Sign-in with Kakao failed. Try again.",
-        });
+        await finish(
+          {
+            error: "server_error",
+            error_description: "Sign-in with Kakao failed. Try again.",
+          },
+          null,
+        );
         return;
       }
 
@@ -423,27 +474,32 @@ export function createKakaoOAuth(options: KakaoOAuthOptions) {
         (await store.countActiveGrants(kakaoUserId, issuedAt)) >=
         OAUTH_MAX_ACTIVE_GRANTS
       ) {
-        redirectToClient({
-          error: "access_denied",
-          error_description: TOO_MANY_GRANTS_MESSAGE,
-        });
+        await finish(
+          {
+            error: "access_denied",
+            error_description: TOO_MANY_GRANTS_MESSAGE,
+          },
+          null,
+        );
         return;
       }
 
       const authorizationCode = generateToken(AUTHORIZATION_CODE_PREFIX);
-      await store.saveAuthorizationCode({
-        codeHash: hashToken(authorizationCode),
-        clientId: pending.clientId,
-        clientName: pending.clientName,
-        kakaoUserId,
-        redirectUri: pending.redirectUri,
-        codeChallenge: pending.codeChallenge,
-        scopes: pending.scopes,
-        resource: pending.resource,
-        createdAt: issuedAt,
-        expiresAt: new Date(issuedAt.getTime() + AUTHORIZATION_CODE_TTL_MS),
-      });
-      redirectToClient({ code: authorizationCode });
+      await finish(
+        { code: authorizationCode },
+        {
+          codeHash: hashToken(authorizationCode),
+          clientId: pending.clientId,
+          clientName: pending.clientName,
+          kakaoUserId,
+          redirectUri: pending.redirectUri,
+          codeChallenge: pending.codeChallenge,
+          scopes: pending.scopes,
+          resource: pending.resource,
+          createdAt: issuedAt,
+          expiresAt: new Date(issuedAt.getTime() + AUTHORIZATION_CODE_TTL_MS),
+        },
+      );
     } catch (error) {
       console.error(
         `[oauth] callback failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -457,8 +513,32 @@ export function createKakaoOAuth(options: KakaoOAuthOptions) {
     }
   };
 
-  const disabledRateLimit =
-    options.rateLimit === false ? { rateLimit: false as const } : {};
+  const limits = options.rateLimit;
+  // Keeps the SDK's default limits per endpoint, counted in the shared store.
+  const endpointLimit = (name: string) =>
+    limits === false
+      ? { rateLimit: false as const }
+      : limits?.createStore
+        ? { rateLimit: rateLimitOptions(limits.createStore, `oauth-${name}:`) }
+        : {};
+  const callbackLimit =
+    limits === false
+      ? []
+      : [
+          rateLimit({
+            ...rateLimitOptions(limits?.createStore, "oauth-callback:"),
+            windowMs: 15 * 60 * 1000,
+            limit: limits?.callbackPerIpPer15Minutes ?? 30,
+            handler: (_request, response) => {
+              sendErrorPage(
+                response,
+                429,
+                "Too many sign-in attempts",
+                "Wait a few minutes, then start again from your AI assistant.",
+              );
+            },
+          }),
+        ];
   const router = express.Router();
   // Served before the SDK's copy: the SDK always advertises
   // client_secret_post, but this server only registers public clients.
@@ -485,13 +565,13 @@ export function createKakaoOAuth(options: KakaoOAuthOptions) {
       resourceServerUrl: mcpResourceUrl,
       scopesSupported: OAUTH_SUPPORTED_SCOPES,
       resourceName: "Kakao Lists",
-      authorizationOptions: disabledRateLimit,
-      tokenOptions: disabledRateLimit,
-      clientRegistrationOptions: disabledRateLimit,
-      revocationOptions: disabledRateLimit,
+      authorizationOptions: endpointLimit("authorize"),
+      tokenOptions: endpointLimit("token"),
+      clientRegistrationOptions: endpointLimit("register"),
+      revocationOptions: endpointLimit("revoke"),
     }),
   );
-  router.get(CALLBACK_PATH, callbackHandler);
+  router.get(CALLBACK_PATH, ...callbackLimit, callbackHandler);
 
   return {
     router,

@@ -28,8 +28,14 @@ import {
 } from "./agentTokens.js";
 import { createAgentVerifier } from "./agentVerifier.js";
 import { createKakaoOAuth } from "./kakaoOAuth.js";
+import { createMaintenanceRouter, runMaintenance } from "./maintenance.js";
 import { createMcpRouter } from "./mcpServer.js";
 import { createPostgresOAuthStore, OAUTH_SCHEMA_SQL } from "./oauthStore.js";
+import {
+  PostgresRateLimitStore,
+  RATE_LIMIT_SCHEMA_SQL,
+} from "./rateLimitStore.js";
+import { createApiRateLimit, createMcpRateLimits } from "./rateLimits.js";
 
 loadRootEnvFiles();
 
@@ -49,12 +55,18 @@ const jsonBodyLimit = process.env.JSON_BODY_LIMIT ?? "10mb";
 // accepts personal agent tokens.
 const publicServerUrl = parsePublicServerUrl(process.env.PUBLIC_SERVER_URL);
 const kakaoRequestTimeoutMs = 10_000;
+// Bearer secret for the maintenance cron endpoint (Vercel Cron sends it).
+const cronSecret = process.env.CRON_SECRET ?? "";
+const maintenanceIntervalMs = 60 * 60 * 1000;
 
 const pool = new Pool({
   connectionString: databaseUrl,
 });
 const agentTokenStore = createPostgresAgentTokenStore(pool);
 const oauthStore = createPostgresOAuthStore(pool);
+// Rate limits are counted in Postgres so they hold across serverless instances.
+const createRateLimitStore = (prefix: string) =>
+  new PostgresRateLimitStore(pool, prefix);
 const kakaoOAuth =
   publicServerUrl && kakaoClientId
     ? createKakaoOAuth({
@@ -67,6 +79,7 @@ const kakaoOAuth =
           const kakaoToken = await exchangeAuthorizationCode(code, redirectUri);
           return (await fetchKakaoUserProfile(kakaoToken.access_token)).id;
         },
+        rateLimit: { createStore: createRateLimitStore },
       })
     : null;
 
@@ -74,7 +87,16 @@ const app: express.Express = express();
 // One proxy hop on Vercel; lets the OAuth endpoints' rate limits see client IPs.
 app.set("trust proxy", 1);
 // MCP clients running in a browser need to read the auth challenge.
-app.use(cors({ exposedHeaders: ["WWW-Authenticate"] }));
+app.use(
+  cors({
+    exposedHeaders: [
+      "WWW-Authenticate",
+      "Retry-After",
+      "RateLimit",
+      "RateLimit-Policy",
+    ],
+  }),
+);
 app.use(express.json({ limit: jsonBodyLimit }));
 app.use((request, response, next) => {
   // Path only: OAuth query strings carry codes and state.
@@ -438,6 +460,10 @@ app.patch("/api/snapshot/item-note", async (request, response) => {
 
 app.use(
   "/api/agent-tokens",
+  createApiRateLimit({
+    createStore: createRateLimitStore,
+    prefix: "api-agent-tokens:",
+  }),
   createAgentTokenRouter({
     store: agentTokenStore,
     authenticate: async (request, response) =>
@@ -450,6 +476,10 @@ app.use(
 // See docs/agent-access.md.
 app.use(
   "/api/agent-connections",
+  createApiRateLimit({
+    createStore: createRateLimitStore,
+    prefix: "api-agent-connections:",
+  }),
   createAgentConnectionRouter({
     store: oauthStore,
     authenticate: async (request, response) =>
@@ -479,8 +509,20 @@ app.use(
       (await getLatestSnapshotRow(userId))?.snapshot ?? null,
     resourceMetadataUrl: kakaoOAuth?.resourceMetadataUrl,
     expectedResource: kakaoOAuth?.mcpResourceUrl,
+    rateLimits: createMcpRateLimits({ createStore: createRateLimitStore }),
   }),
 );
+
+// Daily cleanup from Vercel Cron (see vercel.json). Disabled without a secret.
+if (cronSecret) {
+  app.use(
+    "/api/cron/maintenance",
+    createMaintenanceRouter({
+      secret: cronSecret,
+      run: () => runMaintenance(pool),
+    }),
+  );
+}
 
 export default app;
 export { ensureServerReady };
@@ -509,6 +551,19 @@ async function startServer() {
       `Kakao Lists sync server listening on http://localhost:${port}`,
     );
   });
+
+  // A long-running process cleans up by itself; on Vercel, cron does it.
+  setInterval(() => {
+    runMaintenance(pool)
+      .then((deleted) => {
+        console.info(`[maintenance] deleted ${JSON.stringify(deleted)}`);
+      })
+      .catch((error: unknown) => {
+        console.error(
+          `[maintenance] failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      });
+  }, maintenanceIntervalMs).unref();
 }
 
 function ensureServerReady() {
@@ -560,6 +615,7 @@ async function initializeDatabase() {
   `);
   await pool.query(AGENT_TOKENS_SCHEMA_SQL);
   await pool.query(OAUTH_SCHEMA_SQL);
+  await pool.query(RATE_LIMIT_SCHEMA_SQL);
 }
 
 async function getKakaoTokenRecord(

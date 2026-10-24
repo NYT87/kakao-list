@@ -27,8 +27,13 @@ export const OAUTH_SCHEMA_SQL = `
     scopes TEXT[] NOT NULL,
     resource TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL,
-    expires_at TIMESTAMPTZ NOT NULL
+    expires_at TIMESTAMPTZ NOT NULL,
+    claimed_at TIMESTAMPTZ
   );
+
+  -- Added after the table first shipped; tables are created at startup.
+  ALTER TABLE oauth_pending_authorizations
+    ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMPTZ;
 
   CREATE INDEX IF NOT EXISTS oauth_pending_authorizations_expires_idx
     ON oauth_pending_authorizations (expires_at);
@@ -175,12 +180,42 @@ export interface OAuthStore {
   saveClient(client: OAuthClientInformationFull, now: Date): Promise<void>;
   getClient(clientId: string): Promise<OAuthClientInformationFull | null>;
 
-  /** Also purges expired pending authorizations. */
-  savePendingAuthorization(pending: PendingAuthorization): Promise<void>;
-  /** Deletes and returns the pending authorization if it exists and has not expired. */
-  consumePendingAuthorization(
+  /**
+   * Saves the pending authorization unless its client no longer exists
+   * (returns false). The client row is share-locked while saving, so cleanup
+   * (maintenance.ts) either sees the pending row and keeps the client, or
+   * deletes the client first and this returns false. Also purges expired
+   * pending authorizations.
+   */
+  savePendingAuthorization(pending: PendingAuthorization): Promise<boolean>;
+  /** Returns the pending authorization if it exists and has not expired. */
+  findPendingAuthorization(
     idHash: string,
     now: Date,
+  ): Promise<PendingAuthorization | null>;
+  /**
+   * Marks the unexpired, unclaimed pending authorization as claimed and
+   * returns it, or null. Only the claimer may contact Kakao and complete it,
+   * so a duplicate callback can neither use the single-use Kakao code nor
+   * disturb the sign-in. The row stays stored, protecting its client from
+   * cleanup, until it is completed or expires.
+   */
+  claimPendingAuthorization(
+    idHash: string,
+    now: Date,
+  ): Promise<PendingAuthorization | null>;
+  /**
+   * Deletes the claimed, unexpired pending authorization and, in the same
+   * transaction, stores `code` (when given). Returns the pending
+   * authorization, or null when it was already completed or has expired, so
+   * each sign-in completes once. The pending row is replaced by its code in
+   * one transaction, so the client always has one of them while the sign-in
+   * is in flight, which keeps it safe from cleanup (see maintenance.ts).
+   */
+  completePendingAuthorization(
+    idHash: string,
+    now: Date,
+    code: NewAuthorizationCode | null,
   ): Promise<PendingAuthorization | null>;
 
   /**
@@ -362,91 +397,94 @@ export function createPostgresOAuthStore(pool: Pool): OAuthStore {
         "DELETE FROM oauth_pending_authorizations WHERE expires_at <= $1",
         [pending.createdAt],
       );
-      await pool.query(
-        `
-          INSERT INTO oauth_pending_authorizations
-            (id_hash, client_id, client_name, redirect_uri, code_challenge,
-             state, scopes, resource, created_at, expires_at)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-        `,
-        [
-          pending.idHash,
-          pending.clientId,
-          pending.clientName,
-          pending.redirectUri,
-          pending.codeChallenge,
-          pending.state,
-          pending.scopes,
-          pending.resource,
-          pending.createdAt,
-          pending.expiresAt,
-        ],
-      );
+      return inTransaction(async (client) => {
+        const exists = await client.query(
+          "SELECT 1 FROM oauth_clients WHERE client_id = $1 FOR SHARE",
+          [pending.clientId],
+        );
+        if (exists.rowCount === 0) {
+          return false;
+        }
+
+        await client.query(
+          `
+            INSERT INTO oauth_pending_authorizations
+              (id_hash, client_id, client_name, redirect_uri, code_challenge,
+               state, scopes, resource, created_at, expires_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+          `,
+          [
+            pending.idHash,
+            pending.clientId,
+            pending.clientName,
+            pending.redirectUri,
+            pending.codeChallenge,
+            pending.state,
+            pending.scopes,
+            pending.resource,
+            pending.createdAt,
+            pending.expiresAt,
+          ],
+        );
+        return true;
+      });
     },
 
-    async consumePendingAuthorization(idHash, now) {
-      // DELETE ... RETURNING makes the attempt single-use under concurrency.
+    async findPendingAuthorization(idHash, now) {
       const result = await pool.query<PendingRow>(
         `
-          DELETE FROM oauth_pending_authorizations
-          WHERE id_hash = $1
-          RETURNING *
+          SELECT * FROM oauth_pending_authorizations
+          WHERE id_hash = $1 AND expires_at > $2
         `,
-        [idHash],
+        [idHash, now],
       );
       const row = result.rows[0];
-      if (!row || row.expires_at.getTime() <= now.getTime()) {
-        return null;
-      }
+      return row ? toPendingAuthorization(row) : null;
+    },
 
-      return {
-        idHash: row.id_hash,
-        clientId: row.client_id,
-        clientName: row.client_name,
-        redirectUri: row.redirect_uri,
-        codeChallenge: row.code_challenge,
-        state: row.state,
-        scopes: row.scopes,
-        resource: row.resource,
-        createdAt: row.created_at,
-        expiresAt: row.expires_at,
-      };
+    async claimPendingAuthorization(idHash, now) {
+      const result = await pool.query<PendingRow>(
+        `
+          UPDATE oauth_pending_authorizations
+          SET claimed_at = $2
+          WHERE id_hash = $1 AND expires_at > $2 AND claimed_at IS NULL
+          RETURNING *
+        `,
+        [idHash, now],
+      );
+      const row = result.rows[0];
+      return row ? toPendingAuthorization(row) : null;
+    },
+
+    async completePendingAuthorization(idHash, now, code) {
+      if (code) {
+        await purgeExpiredCodes(pool, code.createdAt);
+      }
+      return inTransaction(async (client) => {
+        // DELETE ... RETURNING makes each sign-in complete once under
+        // concurrency; the code is inserted before the deletion commits.
+        const result = await client.query<PendingRow>(
+          `
+            DELETE FROM oauth_pending_authorizations
+            WHERE id_hash = $1 AND expires_at > $2 AND claimed_at IS NOT NULL
+            RETURNING *
+          `,
+          [idHash, now],
+        );
+        const row = result.rows[0];
+        if (!row) {
+          return null;
+        }
+        if (code) {
+          await insertCode(client, code);
+        }
+        return toPendingAuthorization(row);
+      });
     },
 
     async saveAuthorizationCode(code) {
-      await pool.query(
-        `
-          DELETE FROM oauth_authorization_codes c
-          WHERE c.expires_at <= $1
-            AND NOT EXISTS (
-              SELECT 1 FROM oauth_grants g
-              WHERE g.id = c.grant_id
-                AND g.revoked_at IS NULL
-                AND g.expires_at > $1
-            )
-        `,
-        [code.createdAt],
-      );
-      await pool.query(
-        `
-          INSERT INTO oauth_authorization_codes
-            (code_hash, client_id, client_name, kakao_user_id, redirect_uri,
-             code_challenge, scopes, resource, created_at, expires_at)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-        `,
-        [
-          code.codeHash,
-          code.clientId,
-          code.clientName,
-          code.kakaoUserId,
-          code.redirectUri,
-          code.codeChallenge,
-          code.scopes,
-          code.resource,
-          code.createdAt,
-          code.expiresAt,
-        ],
-      );
+      await purgeExpiredCodes(pool, code.createdAt);
+      await insertCode(pool, code);
     },
 
     async findAuthorizationCode(codeHash) {
@@ -679,6 +717,63 @@ export function createPostgresOAuthStore(pool: Pool): OAuthStore {
       );
       return result.rows.map(toGrantRecord);
     },
+  };
+}
+
+type Queryable = Pick<Pool, "query"> | PoolClient;
+
+/** Expired codes go, except redeemed codes of live grants (replay detection). */
+async function purgeExpiredCodes(db: Queryable, now: Date) {
+  await db.query(
+    `
+      DELETE FROM oauth_authorization_codes c
+      WHERE c.expires_at <= $1
+        AND NOT EXISTS (
+          SELECT 1 FROM oauth_grants g
+          WHERE g.id = c.grant_id
+            AND g.revoked_at IS NULL
+            AND g.expires_at > $1
+        )
+    `,
+    [now],
+  );
+}
+
+async function insertCode(db: Queryable, code: NewAuthorizationCode) {
+  await db.query(
+    `
+      INSERT INTO oauth_authorization_codes
+        (code_hash, client_id, client_name, kakao_user_id, redirect_uri,
+         code_challenge, scopes, resource, created_at, expires_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+    `,
+    [
+      code.codeHash,
+      code.clientId,
+      code.clientName,
+      code.kakaoUserId,
+      code.redirectUri,
+      code.codeChallenge,
+      code.scopes,
+      code.resource,
+      code.createdAt,
+      code.expiresAt,
+    ],
+  );
+}
+
+function toPendingAuthorization(row: PendingRow): PendingAuthorization {
+  return {
+    idHash: row.id_hash,
+    clientId: row.client_id,
+    clientName: row.client_name,
+    redirectUri: row.redirect_uri,
+    codeChallenge: row.code_challenge,
+    state: row.state,
+    scopes: row.scopes,
+    resource: row.resource,
+    createdAt: row.created_at,
+    expiresAt: row.expires_at,
   };
 }
 
