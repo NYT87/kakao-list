@@ -9,6 +9,7 @@
   "homepage": "https://github.com/NYT87/kakao-list",
   "packageManager": "pnpm@10.18.3",
   "scripts": {
+    "dev": "pnpm --parallel --filter @kakao-lists/server --filter @kakao-lists/pwa dev",
     "dev:pwa": "pnpm --filter @kakao-lists/pwa dev",
     "dev:extension": "pnpm --filter @kakao-lists/extension dev",
     "dev:server": "pnpm --filter @kakao-lists/server dev",

@@ -124,6 +124,12 @@ pnpm dev:pwa
 pnpm dev:server
 ```
 
+   Or start the PWA and the sync server together:
+
+```bash
+pnpm dev
+```
+
 6. Start local Postgres if you want the server database via Docker Compose:
 
 ```bash
