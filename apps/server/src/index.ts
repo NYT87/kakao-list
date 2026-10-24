@@ -19,13 +19,17 @@ import type {
 import cors from "cors";
 import express from "express";
 import { Pool, type PoolClient } from "pg";
+import { createAgentConnectionRouter } from "./agentConnectionRoutes.js";
 import { createAgentTokenRouter } from "./agentTokenRoutes.js";
 import {
   AGENT_TOKENS_SCHEMA_SQL,
   createAgentTokenVerifier,
   createPostgresAgentTokenStore,
 } from "./agentTokens.js";
+import { createAgentVerifier } from "./agentVerifier.js";
+import { createKakaoOAuth } from "./kakaoOAuth.js";
 import { createMcpRouter } from "./mcpServer.js";
+import { createPostgresOAuthStore, OAUTH_SCHEMA_SQL } from "./oauthStore.js";
 
 loadRootEnvFiles();
 
@@ -40,18 +44,42 @@ const sessionSigningSecret =
 const allowMockAuth = process.env.ALLOW_MOCK_AUTH === "true";
 const sessionTtlMs = 1000 * 60 * 60 * 24 * 7;
 const jsonBodyLimit = process.env.JSON_BODY_LIMIT ?? "10mb";
+// Public origin of this server. Required for "sign in with Kakao" from AI
+// assistants (OAuth issuer and Kakao redirect URI); without it, /mcp only
+// accepts personal agent tokens.
+const publicServerUrl = parsePublicServerUrl(process.env.PUBLIC_SERVER_URL);
+const kakaoRequestTimeoutMs = 10_000;
 
 const pool = new Pool({
   connectionString: databaseUrl,
 });
 const agentTokenStore = createPostgresAgentTokenStore(pool);
+const oauthStore = createPostgresOAuthStore(pool);
+const kakaoOAuth =
+  publicServerUrl && kakaoClientId
+    ? createKakaoOAuth({
+        store: oauthStore,
+        publicUrl: publicServerUrl,
+        kakaoClientId,
+        identifyKakaoUser: async (code, redirectUri) => {
+          // Only the user id is needed. The Kakao tokens from this login are
+          // not stored, so the web app's own Kakao session is left untouched.
+          const kakaoToken = await exchangeAuthorizationCode(code, redirectUri);
+          return (await fetchKakaoUserProfile(kakaoToken.access_token)).id;
+        },
+      })
+    : null;
 
 const app: express.Express = express();
+// One proxy hop on Vercel; lets the OAuth endpoints' rate limits see client IPs.
+app.set("trust proxy", 1);
 // MCP clients running in a browser need to read the auth challenge.
 app.use(cors({ exposedHeaders: ["WWW-Authenticate"] }));
 app.use(express.json({ limit: jsonBodyLimit }));
 app.use((request, response, next) => {
-  if (!shouldLogRequest(request.originalUrl)) {
+  // Path only: OAuth query strings carry codes and state.
+  const path = request.originalUrl.split("?")[0] ?? "";
+  if (!shouldLogRequest(path)) {
     next();
     return;
   }
@@ -61,26 +89,29 @@ app.use((request, response, next) => {
   response.on("finish", () => {
     const durationMs = Math.round((performance.now() - startedAt) * 10) / 10;
     console.info(
-      `[api] ${request.method} ${request.originalUrl} -> ${response.statusCode} (${durationMs}ms)`,
+      `[api] ${request.method} ${path} -> ${response.statusCode} (${durationMs}ms)`,
     );
   });
 
   next();
 });
-app.use(["/api", "/mcp"], async (_request, response, next) => {
-  try {
-    await ensureServerReady();
-    next();
-  } catch (error) {
-    response
-      .status(503)
-      .send(
-        error instanceof Error
-          ? `Database is unavailable: ${error.message}`
-          : "Database is unavailable.",
-      );
-  }
-});
+app.use(
+  ["/api", "/mcp", "/authorize", "/token", "/register", "/revoke", "/oauth"],
+  async (_request, response, next) => {
+    try {
+      await ensureServerReady();
+      next();
+    } catch (error) {
+      response
+        .status(503)
+        .send(
+          error instanceof Error
+            ? `Database is unavailable: ${error.message}`
+            : "Database is unavailable.",
+        );
+    }
+  },
+);
 
 let initializationPromise: Promise<void> | null = null;
 
@@ -91,8 +122,19 @@ interface KakaoTokenRecord {
   updatedAt: string;
 }
 
-function shouldLogRequest(url: string) {
-  return url === "/health" || url.startsWith("/api") || url.startsWith("/mcp");
+function shouldLogRequest(path: string) {
+  return (
+    path === "/health" ||
+    [
+      "/api",
+      "/mcp",
+      "/authorize",
+      "/token",
+      "/register",
+      "/revoke",
+      "/oauth",
+    ].some((prefix) => path.startsWith(prefix))
+  );
 }
 
 interface AuthenticatedSession {
@@ -407,11 +449,36 @@ app.use(
 // Read-only MCP endpoint for AI agents, authenticated with agent tokens.
 // See docs/agent-access.md.
 app.use(
+  "/api/agent-connections",
+  createAgentConnectionRouter({
+    store: oauthStore,
+    authenticate: async (request, response) =>
+      (await requireAuthenticatedSession(request, response))?.session.user.id ??
+      null,
+  }),
+);
+
+// OAuth sign-in with Kakao for AI assistants: /authorize, /token, /register,
+// /revoke, /oauth/kakao/callback and the .well-known metadata. See
+// docs/agent-access.md (phase 2).
+if (kakaoOAuth) {
+  app.use(kakaoOAuth.router);
+}
+
+// Read-only MCP endpoint for AI agents. Accepts personal agent tokens and,
+// when PUBLIC_SERVER_URL is set, OAuth access tokens.
+app.use(
   "/mcp",
   createMcpRouter({
-    verifier: createAgentTokenVerifier(agentTokenStore),
+    verifier: createAgentVerifier({
+      agentTokens: createAgentTokenVerifier(agentTokenStore),
+      oauth: kakaoOAuth?.verifier,
+      resource: kakaoOAuth?.mcpResourceUrl,
+    }),
     loadSnapshot: async (userId) =>
       (await getLatestSnapshotRow(userId))?.snapshot ?? null,
+    resourceMetadataUrl: kakaoOAuth?.resourceMetadataUrl,
+    expectedResource: kakaoOAuth?.mcpResourceUrl,
   }),
 );
 
@@ -492,6 +559,7 @@ async function initializeDatabase() {
       ON snapshot_history (kakao_user_id, server_version DESC);
   `);
   await pool.query(AGENT_TOKENS_SCHEMA_SQL);
+  await pool.query(OAUTH_SCHEMA_SQL);
 }
 
 async function getKakaoTokenRecord(
@@ -830,6 +898,7 @@ async function exchangeAuthorizationCode(code: string, redirectUri: string) {
   }
 
   const response = await fetch("https://kauth.kakao.com/oauth/token", {
+    signal: AbortSignal.timeout(kakaoRequestTimeoutMs),
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded;charset=utf-8",
@@ -860,6 +929,7 @@ async function refreshKakaoAccessToken(refreshToken: string) {
   }
 
   const response = await fetch("https://kauth.kakao.com/oauth/token", {
+    signal: AbortSignal.timeout(kakaoRequestTimeoutMs),
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded;charset=utf-8",
@@ -882,6 +952,7 @@ async function fetchKakaoUserProfile(
   accessToken: string,
 ): Promise<KakaoUserProfile> {
   const response = await fetch("https://kapi.kakao.com/v2/user/me", {
+    signal: AbortSignal.timeout(kakaoRequestTimeoutMs),
     headers: {
       Authorization: `Bearer ${accessToken}`,
     },
@@ -1085,6 +1156,16 @@ function loadEnvFile(filePath: string) {
       .replace(/^['"]|['"]$/g, "");
     process.env[key] = value;
   }
+}
+
+function parsePublicServerUrl(value: string | undefined) {
+  if (!value) {
+    return null;
+  }
+  if (!URL.canParse(value)) {
+    throw new Error(`PUBLIC_SERVER_URL is not a valid URL: ${value}`);
+  }
+  return new URL(value);
 }
 
 function formatDatabaseTarget(value: string) {

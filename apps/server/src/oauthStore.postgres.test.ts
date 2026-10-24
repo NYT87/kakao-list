@@ -1,0 +1,307 @@
+import assert from "node:assert/strict";
+import crypto from "node:crypto";
+import process from "node:process";
+import { after, before, describe, it } from "node:test";
+import { Pool } from "pg";
+import {
+  createPostgresOAuthStore,
+  type NewOAuthToken,
+  OAUTH_GRANT_LIST_LIMIT,
+  OAUTH_SCHEMA_SQL,
+  type OAuthStore,
+} from "./oauthStore.js";
+
+// Runs only when TEST_DATABASE_URL is set (see agentTokens.postgres.test.ts).
+// Each run uses its own schema and drops it afterwards.
+const databaseUrl = process.env.TEST_DATABASE_URL;
+const MINUTE = 60 * 1000;
+
+describe("Postgres OAuth store", { skip: !databaseUrl }, () => {
+  const schema = `oauth_test_${crypto.randomBytes(4).toString("hex")}`;
+  const now = new Date("2026-10-24T00:00:00.000Z");
+  let pool: Pool;
+  let store: OAuthStore;
+
+  const hash = () => crypto.randomBytes(32).toString("hex");
+  const at = (offsetMs: number) => new Date(now.getTime() + offsetMs);
+
+  function token(
+    kind: NewOAuthToken["kind"],
+    overrides: Partial<NewOAuthToken> = {},
+  ): NewOAuthToken {
+    return {
+      tokenHash: hash(),
+      kind,
+      scopes: ["lists:read"],
+      createdAt: now,
+      expiresAt: at(kind === "access" ? 60 * MINUTE : 30 * 24 * 60 * MINUTE),
+      ...overrides,
+    };
+  }
+
+  async function saveCode(
+    overrides: { kakaoUserId?: string; createdAt?: Date } = {},
+  ) {
+    const createdAt = overrides.createdAt ?? now;
+    const codeHash = hash();
+    await store.saveAuthorizationCode({
+      codeHash,
+      clientId: "client-1",
+      clientName: "Claude",
+      kakaoUserId: overrides.kakaoUserId ?? "user-1",
+      redirectUri: "http://localhost:4567/cb",
+      codeChallenge: "challenge",
+      scopes: ["lists:read"],
+      resource: "https://api.example/mcp",
+      createdAt,
+      expiresAt: new Date(createdAt.getTime() + MINUTE),
+    });
+    return codeHash;
+  }
+
+  function redeem(
+    codeHash: string,
+    options: { createdAt?: Date; expiresAt?: Date } = {},
+    maxActive = 20,
+  ) {
+    const access = token("access");
+    const refresh = token("refresh");
+    const createdAt = options.createdAt ?? now;
+    const result = store.redeemAuthorizationCode(
+      codeHash,
+      createdAt,
+      (code) => ({
+        grant: {
+          id: crypto.randomUUID(),
+          kakaoUserId: code.kakaoUserId,
+          clientId: code.clientId,
+          clientName: code.clientName,
+          scopes: code.scopes,
+          resource: code.resource,
+          createdAt,
+          expiresAt: options.expiresAt ?? at(30 * 24 * 60 * MINUTE),
+        },
+        tokens: [access, refresh],
+      }),
+      maxActive,
+    );
+    return { result, access, refresh };
+  }
+
+  async function createGrant(
+    options: { kakaoUserId?: string; createdAt?: Date; expiresAt?: Date } = {},
+    maxActive = 20,
+  ) {
+    const codeHash = await saveCode(options);
+    const { result, access, refresh } = redeem(codeHash, options, maxActive);
+    const redeemed = await result;
+    const grant = redeemed.status === "ok" ? redeemed.grant : null;
+    return { grant, access, refresh, codeHash };
+  }
+
+  before(async () => {
+    const setup = new Pool({ connectionString: databaseUrl });
+    await setup.query(`CREATE SCHEMA ${schema}`);
+    await setup.end();
+    pool = new Pool({
+      connectionString: databaseUrl,
+      options: `-c search_path=${schema}`,
+    });
+    await pool.query(OAUTH_SCHEMA_SQL);
+    store = createPostgresOAuthStore(pool);
+  });
+
+  after(async () => {
+    await pool?.query(`DROP SCHEMA ${schema} CASCADE`);
+    await pool?.end();
+  });
+
+  it("stores and reads back registered clients", async () => {
+    const client = {
+      client_id: crypto.randomUUID(),
+      client_name: "Claude",
+      redirect_uris: ["https://claude.ai/api/mcp/auth_callback"],
+      token_endpoint_auth_method: "none",
+    };
+    await store.saveClient(client, now);
+
+    assert.deepEqual(await store.getClient(client.client_id), client);
+    assert.equal(await store.getClient("missing"), null);
+  });
+
+  it("consumes a pending authorization once and only before it expires", async () => {
+    const pending = {
+      clientId: "client-1",
+      clientName: "Claude",
+      redirectUri: "http://localhost:4567/cb",
+      codeChallenge: "challenge",
+      state: "client-state",
+      scopes: ["lists:read"],
+      resource: "https://api.example/mcp",
+      createdAt: now,
+      expiresAt: at(10 * MINUTE),
+    };
+    const fresh = { ...pending, idHash: hash() };
+    const stale = { ...pending, idHash: hash() };
+    await store.savePendingAuthorization(fresh);
+    await store.savePendingAuthorization(stale);
+
+    const [first, second] = await Promise.all([
+      store.consumePendingAuthorization(fresh.idHash, now),
+      store.consumePendingAuthorization(fresh.idHash, now),
+    ]);
+    assert.equal([first, second].filter(Boolean).length, 1);
+    assert.equal((first ?? second)?.state, "client-state");
+    assert.equal(
+      await store.consumePendingAuthorization(stale.idHash, at(11 * MINUTE)),
+      null,
+    );
+  });
+
+  it("redeems a code once under concurrency and shows replays the winner's grant", async () => {
+    const codeHash = await saveCode();
+
+    const results = await Promise.all(
+      Array.from({ length: 5 }, () => redeem(codeHash).result),
+    );
+
+    const winners = results.filter((result) => result.status === "ok");
+    assert.equal(winners.length, 1);
+    const winner = winners[0];
+    const grantId = winner?.status === "ok" ? winner.grant.id : undefined;
+    assert.ok(grantId);
+    assert.deepEqual(
+      results.filter((result) => result.status === "reused"),
+      Array.from({ length: 4 }, () => ({ status: "reused", grantId })),
+    );
+  });
+
+  it("rejects expired and unknown codes", async () => {
+    const expired = await saveCode();
+
+    assert.deepEqual(
+      await redeem(expired, { createdAt: at(2 * MINUTE) }).result,
+      { status: "invalid" },
+    );
+    assert.deepEqual(await redeem(hash()).result, { status: "invalid" });
+  });
+
+  it("keeps the code unused when the grant cap is reached", async () => {
+    const kakaoUserId = `user-${crypto.randomUUID()}`;
+    await createGrant({ kakaoUserId }, 1);
+    const codeHash = await saveCode({ kakaoUserId });
+
+    assert.deepEqual(await redeem(codeHash, {}, 1).result, {
+      status: "limit",
+    });
+    assert.equal((await redeem(codeHash, {}, 2).result).status, "ok");
+  });
+
+  it("enforces the active grant cap under concurrency", async () => {
+    const kakaoUserId = `user-${crypto.randomUUID()}`;
+
+    const results = await Promise.all(
+      Array.from({ length: 5 }, () => createGrant({ kakaoUserId }, 3)),
+    );
+
+    assert.equal(results.filter((result) => result.grant).length, 3);
+    assert.equal(await store.countActiveGrants(kakaoUserId, now), 3);
+  });
+
+  it("finds tokens with their grant", async () => {
+    const { grant, access } = await createGrant();
+
+    const found = await store.findToken(access.tokenHash);
+
+    assert.equal(found?.token.kind, "access");
+    assert.equal(found?.token.grantId, grant?.id);
+    assert.equal(found?.grant.clientName, "Claude");
+    assert.equal(await store.findToken(hash()), null);
+  });
+
+  it("rotates a refresh token once, even under concurrency", async () => {
+    const { grant, refresh } = await createGrant();
+    const later = at(5 * MINUTE);
+
+    const results = await Promise.all(
+      Array.from({ length: 3 }, () =>
+        store.rotateRefreshToken(
+          refresh.tokenHash,
+          [token("access"), token("refresh")],
+          at(60 * 24 * 60 * MINUTE),
+          later,
+        ),
+      ),
+    );
+
+    assert.equal(results.filter((result) => result.status === "ok").length, 1);
+    assert.deepEqual(
+      results.filter((result) => result.status === "reused"),
+      [
+        { status: "reused", grantId: grant?.id },
+        { status: "reused", grantId: grant?.id },
+      ],
+    );
+    const rotated = results.find((result) => result.status === "ok");
+    assert.equal(
+      rotated?.status === "ok" ? rotated.record.expiresAt : null,
+      at(60 * 24 * 60 * MINUTE).toISOString(),
+    );
+  });
+
+  it("does not rotate refresh tokens of revoked grants or expired tokens", async () => {
+    const revoked = await createGrant();
+    await store.revokeGrant(revoked.grant?.id as string, now);
+    const expired = await createGrant();
+
+    assert.deepEqual(
+      await store.rotateRefreshToken(revoked.refresh.tokenHash, [], now, now),
+      { status: "invalid" },
+    );
+    assert.deepEqual(
+      await store.rotateRefreshToken(
+        expired.refresh.tokenHash,
+        [],
+        now,
+        at(31 * 24 * 60 * MINUTE),
+      ),
+      { status: "invalid" },
+    );
+  });
+
+  it("revokes grants only for their owner when an owner is given", async () => {
+    const { grant } = await createGrant({ kakaoUserId: "owner" });
+    const id = grant?.id as string;
+
+    assert.equal(await store.revokeGrant(id, now, "someone-else"), false);
+    assert.equal(await store.revokeGrant(id, now, "owner"), true);
+    assert.equal(await store.revokeGrant(id, now, "owner"), false);
+    assert.deepEqual(await store.listGrantsForUser("owner", now), []);
+  });
+
+  it("lists an older active grant before newer expired ones", async () => {
+    const kakaoUserId = `user-${crypto.randomUUID()}`;
+    const { grant: active } = await createGrant({ kakaoUserId });
+    for (let index = 1; index <= OAUTH_GRANT_LIST_LIMIT; index += 1) {
+      const createdAt = at(index * 1000);
+      await createGrant({ kakaoUserId, createdAt, expiresAt: createdAt });
+    }
+    const later = at(OAUTH_GRANT_LIST_LIMIT * 1000 + 1000);
+
+    const listed = await store.listGrantsForUser(kakaoUserId, later);
+
+    assert.equal(listed.length, OAUTH_GRANT_LIST_LIMIT);
+    assert.equal(listed[0]?.id, active?.id);
+  });
+
+  it("throttles last-used updates", async () => {
+    const kakaoUserId = `user-${crypto.randomUUID()}`;
+    const { grant } = await createGrant({ kakaoUserId });
+
+    await store.markGrantUsed(grant?.id as string, now, MINUTE);
+    await store.markGrantUsed(grant?.id as string, at(1000), MINUTE);
+
+    const [listed] = await store.listGrantsForUser(kakaoUserId, now);
+    assert.equal(listed?.lastUsedAt, now.toISOString());
+  });
+});

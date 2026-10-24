@@ -37,11 +37,17 @@ const READ_ONLY = {
 export function createMcpRouter(options: {
   verifier: OAuthTokenVerifier;
   loadSnapshot: SnapshotLoader;
+  /** Advertised in 401 challenges so MCP clients can discover OAuth sign-in. */
+  resourceMetadataUrl?: string;
+  /** When set, tokens must have been issued for this resource (audience). */
+  expectedResource?: URL;
 }): express.Router {
   const router = express.Router();
   const auth = requireBearerAuth({
     verifier: options.verifier,
     requiredScopes: [AGENT_SCOPE_LISTS_READ],
+    resourceMetadataUrl: options.resourceMetadataUrl,
+    expectedResource: options.expectedResource,
   });
 
   router.post("/", auth, async (request, response) => {
