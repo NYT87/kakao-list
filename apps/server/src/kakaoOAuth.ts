@@ -361,13 +361,19 @@ export function createKakaoOAuth(options: KakaoOAuthOptions) {
     const state =
       typeof request.query.state === "string" ? request.query.state : "";
     const cookieState = readCookie(request.headers.cookie, STATE_COOKIE);
-    response.cookie(STATE_COOKIE, "", { ...cookieOptions, maxAge: 0 });
+    const stateMatches = Boolean(
+      state && cookieState && safeEqual(state, cookieState),
+    );
+    // Only clear the cookie for its own sign-in: a stale or unsolicited
+    // callback must not break a newer sign-in in the same browser.
+    if (stateMatches) {
+      response.cookie(STATE_COOKIE, "", { ...cookieOptions, maxAge: 0 });
+    }
 
     try {
-      const pending =
-        state && cookieState && safeEqual(state, cookieState)
-          ? await store.consumePendingAuthorization(hashToken(state), now())
-          : null;
+      const pending = stateMatches
+        ? await store.consumePendingAuthorization(hashToken(state), now())
+        : null;
       if (!pending) {
         sendErrorPage(
           response,

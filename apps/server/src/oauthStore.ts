@@ -183,7 +183,10 @@ export interface OAuthStore {
     now: Date,
   ): Promise<PendingAuthorization | null>;
 
-  /** Also purges expired codes. */
+  /**
+   * Also purges expired codes, except redeemed ones whose grant is still
+   * live: they are kept so a replay can still be detected and revoke it.
+   */
   saveAuthorizationCode(code: NewAuthorizationCode): Promise<void>;
   findAuthorizationCode(
     codeHash: string,
@@ -412,7 +415,16 @@ export function createPostgresOAuthStore(pool: Pool): OAuthStore {
 
     async saveAuthorizationCode(code) {
       await pool.query(
-        "DELETE FROM oauth_authorization_codes WHERE expires_at <= $1",
+        `
+          DELETE FROM oauth_authorization_codes c
+          WHERE c.expires_at <= $1
+            AND NOT EXISTS (
+              SELECT 1 FROM oauth_grants g
+              WHERE g.id = c.grant_id
+                AND g.revoked_at IS NULL
+                AND g.expires_at > $1
+            )
+        `,
         [code.createdAt],
       );
       await pool.query(

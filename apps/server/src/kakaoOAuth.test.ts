@@ -440,6 +440,33 @@ describe("OAuth sign-in with Kakao for MCP clients", () => {
       assert.match(code, /^kl_ac_/);
     });
 
+    it("leaves a newer sign-in's cookie alone when a stale callback arrives", async () => {
+      const client = await registerClient();
+      const older = await startAuthorization(client.client_id);
+      const newer = await startAuthorization(client.client_id);
+      kakaoCodes.set("kakao-overlap", "user-1");
+
+      const stale = await kakaoCallback(
+        older.kakaoUrl?.searchParams.get("state") as string,
+        newer.cookie,
+        { code: "kakao-overlap" },
+      );
+      const current = await kakaoCallback(
+        newer.kakaoUrl?.searchParams.get("state") as string,
+        newer.cookie,
+        { code: "kakao-overlap" },
+      );
+
+      assert.equal(stale.status, 400);
+      assert.equal(stale.headers.get("set-cookie"), null);
+      assert.equal(current.status, 302);
+      assert.ok(
+        new URL(current.headers.get("location") as string).searchParams.get(
+          "code",
+        ),
+      );
+    });
+
     it("clears the state cookie", async () => {
       const client = await registerClient();
       const started = await startAuthorization(client.client_id);
@@ -626,6 +653,23 @@ describe("OAuth sign-in with Kakao for MCP clients", () => {
       const winner = results.find((result) => result.status === 200);
       assert.equal(
         (await callMcp(winner?.body.access_token as string)).status,
+        401,
+      );
+    });
+
+    it("still revokes the connection when an old code is replayed after cleanup", async () => {
+      const flow = await authorizeAs("user-1");
+      const first = await exchange(flow);
+      clock = new Date(clock.getTime() + 2 * 60 * 1000);
+      // Saving a newer code purges expired codes.
+      await authorizeAs("user-1");
+
+      const replay = await exchange(flow);
+
+      assert.equal(replay.status, 400);
+      assert.equal(replay.body.error, "invalid_grant");
+      assert.equal(
+        (await callMcp(first.body.access_token as string)).status,
         401,
       );
     });

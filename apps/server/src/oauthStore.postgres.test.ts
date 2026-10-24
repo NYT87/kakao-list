@@ -208,6 +208,33 @@ describe("Postgres OAuth store", { skip: !databaseUrl }, () => {
     assert.equal(await store.countActiveGrants(kakaoUserId, now), 3);
   });
 
+  it("keeps redeemed codes of live grants when purging expired codes", async () => {
+    const kakaoUserId = `user-${crypto.randomUUID()}`;
+    const { grant, codeHash } = await createGrant({ kakaoUserId });
+    const unused = await saveCode({ kakaoUserId });
+
+    await saveCode({ kakaoUserId, createdAt: at(2 * MINUTE) });
+
+    assert.deepEqual(
+      await redeem(codeHash, { createdAt: at(2 * MINUTE) }).result,
+      {
+        status: "reused",
+        grantId: grant?.id,
+      },
+    );
+    assert.equal(await store.findAuthorizationCode(unused), null);
+  });
+
+  it("purges redeemed codes once their grant is revoked", async () => {
+    const kakaoUserId = `user-${crypto.randomUUID()}`;
+    const { grant, codeHash } = await createGrant({ kakaoUserId });
+    await store.revokeGrant(grant?.id as string, now);
+
+    await saveCode({ kakaoUserId, createdAt: at(2 * MINUTE) });
+
+    assert.equal(await store.findAuthorizationCode(codeHash), null);
+  });
+
   it("finds tokens with their grant", async () => {
     const { grant, access } = await createGrant();
 

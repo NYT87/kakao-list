@@ -51,7 +51,13 @@ export function createInMemoryOAuthStore(): OAuthStore {
 
     async saveAuthorizationCode(code) {
       for (const [key, value] of codes) {
-        if (Date.parse(value.expiresAt) <= code.createdAt.getTime()) {
+        const grant = value.grantId ? grants.get(value.grantId) : undefined;
+        const keepForReplayDetection =
+          grant !== undefined && isActive(grant, code.createdAt);
+        if (
+          Date.parse(value.expiresAt) <= code.createdAt.getTime() &&
+          !keepForReplayDetection
+        ) {
           codes.delete(key);
         }
       }
