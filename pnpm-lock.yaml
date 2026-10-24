@@ -50,9 +50,15 @@ importers:
       '@kakao-lists/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@kakao-lists/kakao':
+        specifier: workspace:*
+        version: link:../../packages/kakao
       '@kakao-lists/storage':
         specifier: workspace:*
         version: link:../../packages/storage
+      '@kakao-lists/sync':
+        specifier: workspace:*
+        version: link:../../packages/sync
       react:
         specifier: ^19.2.0
         version: 19.2.6

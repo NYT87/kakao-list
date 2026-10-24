@@ -1,0 +1,48 @@
+name: Build Extension
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: build-extension-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-extension:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      EXTENSION_PUBLIC_KEY: ${{ secrets.EXTENSION_PUBLIC_KEY }}
+      VITE_SYNC_SERVER_URL: ${{ vars.VITE_SYNC_SERVER_URL }}
+      VITE_KAKAO_REST_API_KEY: ${{ secrets.VITE_KAKAO_REST_API_KEY }}
+      VITE_PWA_BASE_URL: ${{ vars.VITE_PWA_BASE_URL }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.12.0
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build extension
+        run: pnpm --filter @kakao-lists/extension build
+
+      - name: Upload extension build
+        uses: actions/upload-artifact@v4
+        with:
+          name: kakao-lists-extension-${{ github.sha }}
+          path: apps/extension/dist
+          if-no-files-found: error
+          retention-days: 30

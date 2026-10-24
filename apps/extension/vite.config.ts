@@ -20,7 +20,11 @@ export default defineConfig(({ mode }) => {
       react(),
       {
         name: "write-extension-manifest",
-        closeBundle() {
+        closeBundle(error) {
+          if (error) {
+            return;
+          }
+
           const sourceManifestPath = path.resolve(
             __dirname,
             "public/manifest.json",
