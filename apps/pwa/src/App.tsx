@@ -935,7 +935,7 @@ export default function App() {
               </div>
             </article>
             <article className="panel settings-update">
-              <h2>App Update</h2>
+              <h2>App version</h2>
               <p>
                 {offlineReady
                   ? "Ready to open offline on this device."
@@ -943,35 +943,32 @@ export default function App() {
               </p>
               <dl className="meta-list update-meta">
                 <div>
-                  <dt>Status</dt>
-                  <dd>
-                    {updateAvailable ? "New version ready" : "Up to date"}
-                  </dd>
-                </div>
-                <div>
-                  <dt>App version</dt>
+                  <dt>Version</dt>
                   <dd>{__APP_VERSION__}</dd>
                 </div>
                 <div>
-                  <dt>Build commit</dt>
+                  <dt>Commit</dt>
                   <dd>{__COMMIT_ID__}</dd>
                 </div>
               </dl>
-              <div className="hero-actions compact update-actions">
-                <button
-                  className="button primary"
-                  disabled={!updateAvailable || isApplyingUpdate || isBusy}
-                  onClick={applyPwaUpdate}
-                  type="button"
-                >
-                  {isApplyingUpdate ? "Updating…" : "Update now"}
-                </button>
-              </div>
-              <p className="panel-copy">
-                {updateAvailable
-                  ? "A newer app version has been downloaded and is ready to activate."
-                  : "This device is already using the latest downloaded app version."}
-              </p>
+              {updateAvailable ? (
+                <>
+                  <div className="hero-actions compact update-actions">
+                    <button
+                      className="button primary"
+                      disabled={isApplyingUpdate || isBusy}
+                      onClick={applyPwaUpdate}
+                      type="button"
+                    >
+                      {isApplyingUpdate ? "Updating…" : "Update now"}
+                    </button>
+                  </div>
+                  <p className="panel-copy">
+                    A newer app version has been downloaded and is ready to
+                    activate.
+                  </p>
+                </>
+              ) : null}
             </article>
             <article className="panel">
               <h2>Your account</h2>

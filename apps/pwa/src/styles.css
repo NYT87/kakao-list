@@ -468,6 +468,11 @@ h3 {
   margin-bottom: 0;
 }
 
+.update-meta {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+}
+
 .bullet-list {
   margin: 0;
   padding-left: 18px;
@@ -929,6 +934,11 @@ h3 {
 }
 
 @media (max-width: 480px) {
+  .update-meta {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
   .topbar.is-settings .topbar-brand strong {
     position: absolute;
     width: 1px;
