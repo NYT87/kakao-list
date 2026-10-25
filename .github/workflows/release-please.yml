@@ -88,7 +88,9 @@ jobs:
             echo 'No open Release Please PR to verify.'
             exit 0
           fi
-          gh workflow run ci.yml --ref "$release_branch"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/dispatches" \
+            --method POST \
+            --field ref="$release_branch"
 
   bundle-extension:
     if: ${{ needs.release-please.outputs.extension_released == 'true' }}
