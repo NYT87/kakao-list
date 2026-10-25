@@ -11,6 +11,12 @@ Kakao Lists is a pnpm workspace monorepo for a browser-based project that combin
 - Kakao OAuth wiring
 - local synced list storage behind a browser-compatible persistence abstraction
 
+## Download the extension
+
+- Open the [releases page](https://github.com/NYT87/kakao-list/releases), choose the newest `extension-v*` release, and download `kakao-lists-extension.zip` or its versioned equivalent, such as `kakao-lists-extension-0.1.2-abcde.zip`.
+
+Unzip the download, open `chrome://extensions` or `brave://extensions`, enable **Developer mode**, choose **Load unpacked**, and select the extracted `dist` folder. See [extension public key setup](docs/extension-public-key.md) if Kakao sign-in needs a stable callback URL.
+
 ## Architecture
 
 ```text
@@ -48,7 +54,7 @@ The sync server is multi-user and scopes data by Kakao service user id:
 2. The PWA sends that code to the sync server.
 3. The server exchanges the code with Kakao and calls Kakao's user-info endpoint.
 4. The returned Kakao user id becomes the only storage scope key on the server.
-5. The server returns a signed session token, and snapshot APIs require that bearer token.
+5. The server returns an opaque, expiring session token stored by hash in Postgres. Snapshot APIs require that bearer token, and logout revokes it.
 
 The client no longer chooses an `accountId`. Snapshot access is derived from authenticated Kakao identity.
 
@@ -61,7 +67,7 @@ Both the web app and the extension now open on a Kakao sign-in screen.
 - The web app is now a read-only viewer of the latest server snapshot and does not create fresh snapshots from Kakao Maps.
 - The extension is the only client that creates fresh snapshots from Kakao Maps, and it only imports when the user clicks the popup import button.
 
-The current Kakao list import is still mocked on the server until the exact production list endpoint is verified.
+The extension imports real lists using the experimental private Kakao Maps web endpoints. Server-side import is unavailable; the old demo-sync endpoint returns 410.
 
 ## Kakao Maps Extraction
 
@@ -124,7 +130,7 @@ VITE_KAKAO_SCOPE=
 
 ## Kakao Scope
 
-This scaffold supports the start of Kakao auth from browser surfaces and captures the authorization code callback. The actual favorite-list sync is intentionally isolated behind an adapter because an official public Kakao "favorite lists" API was not verified in the current docs pass.
+Kakao Login proves cloud identity; Kakao Maps list extraction uses a separate browser session. Their user ids cannot be compared directly. The extension asks you to check both accounts before each import or Kakao-note edit. This is manual confirmation, not automatic identity verification. Cancel and sign in again if the accounts differ.
 
 ## Getting Started
 
@@ -147,6 +153,8 @@ cp .env.example .env.local
 ```bash
 pnpm dev:pwa
 ```
+
+Generate a server secret with `openssl rand -hex 32` and put it in `SYNC_SERVER_SIGNING_SECRET`. Keep it stable: it derives the credential-encryption key. Never use the example placeholder. Startup rejects missing/example/weak secrets and production mock authentication.
 
 5. Start the sync server:
 
@@ -178,32 +186,36 @@ pnpm dev:extension
 pnpm bundle:extension
 ```
 
-This writes:
+This writes a ZIP in `apps/extension/` named for the extension manifest version and the short Git commit ID, for example:
 
-- `apps/extension/kakao-lists-extension.zip`
+- `apps/extension/kakao-lists-extension-0.1.2-abcde.zip`
+
+The commit ID identifies `HEAD`; uncommitted local changes are not represented in the filename. CI and release builds use a clean checkout.
 
 ## Kakao App Setup Notes
 
 - Register the web redirect URI from `VITE_KAKAO_REDIRECT_URI` in your Kakao app.
 - For the extension flow, register the Chrome identity redirect URI returned by `chrome.identity.getRedirectURL("kakao")` for your installed extension id.
 - If you want that extension redirect URI to stay stable across local reinstalls, set `EXTENSION_PUBLIC_KEY` before building the extension. Chrome derives the extension id, and therefore the `chromiumapp.org` callback URI, from that key.
-- Full instructions for generating `EXTENSION_PUBLIC_KEY` are in [docs/extension-public-key.md](/Users/josemiguel/workspace-personal/kakao-lists/docs/extension-public-key.md).
+- Full instructions for generating `EXTENSION_PUBLIC_KEY` are in [docs/extension-public-key.md](docs/extension-public-key.md).
 - Set `DATABASE_URL`, `KAKAO_REST_API_KEY`, `KAKAO_CLIENT_SECRET`, and `SYNC_SERVER_SIGNING_SECRET` on the server before using sign-in.
 
 ## Environment Variables
 
-See [.env.example](/Users/josemiguel/workspace-personal/kakao-lists/.env.example).
+See [.env.example](.env.example).
 
 ## Zip Distribution Notes
 
 - The generated zip is for manual distribution, not Chrome Web Store publishing.
 - Users cannot normally install a random zip directly in Chrome or Brave.
 - Users must unzip it, open `chrome://extensions`, enable Developer mode, click `Load unpacked`, and select the extracted `dist` folder.
-- If you need a stable Kakao redirect URI for this manual distribution flow, see [docs/extension-public-key.md](/Users/josemiguel/workspace-personal/kakao-lists/docs/extension-public-key.md).
-- The repo bundle command is `pnpm bundle:extension`, and it writes [apps/extension/kakao-lists-extension.zip](/Users/josemiguel/workspace-personal/kakao-lists/apps/extension/kakao-lists-extension.zip).
-- CI builds are defined in [.github/workflows/build-extension.yml](.github/workflows/build-extension.yml). Every push to `main`, every pull request, and manual runs build the extension and upload `apps/extension/dist` as a workflow artifact named `kakao-lists-extension-<commit sha>` (kept for 30 days). Download it from the run summary page under **Artifacts**, unzip it, and load the folder with **Load unpacked**.
-- GitHub release automation is defined in [.github/workflows/release-extension.yml](/Users/josemiguel/workspace-personal/kakao-lists/.github/workflows/release-extension.yml). When a GitHub release is published, the workflow rebuilds the extension zip and uploads it to the release assets automatically.
-- If you want every release asset to keep the same extension ID, set the repository Actions secret `EXTENSION_PUBLIC_KEY` to the same one-line public-key value described in [docs/extension-public-key.md](/Users/josemiguel/workspace-personal/kakao-lists/docs/extension-public-key.md).
+- If you need a stable Kakao redirect URI for this manual distribution flow, see [docs/extension-public-key.md](docs/extension-public-key.md).
+- The repo bundle command is `pnpm bundle:extension`, and it writes `apps/extension/kakao-lists-extension-<version>-<commit>.zip`.
+- The [verification workflow](.github/workflows/ci.yml) runs checks and builds on pull requests or manual dispatch. It does not publish a ZIP.
+- The [Release Please workflow](.github/workflows/release-please.yml) runs on pushes to `main`. It opens or updates a release PR with version bumps for the affected packages. Merging that PR creates package-specific releases; the extension bundle job runs only if an `apps/extension` release was created. It uploads the versioned ZIP and a stable `kakao-lists-extension.zip` filename to that release and links the asset in the run summary. Server-only releases have no extension ZIP.
+- Release versions are tracked in [.release-please-manifest.json](.release-please-manifest.json) and [release-please-config.json](release-please-config.json). Extension release PRs update both `apps/extension/package.json` and `apps/extension/public/manifest.json`. Use conventional commit subjects (`fix:`, `feat:`) for changes that should open a version PR; package paths determine which version changes. A shared package release also patch-bumps dependent apps through the Node workspace plugin.
+- Repository Actions must allow GitHub Actions to create pull requests. Release Please uses `GITHUB_TOKEN`; GitHub may require manual approval before pull-request checks run on its generated PR. The bundle job stays in the same workflow because releases made with `GITHUB_TOKEN` do not trigger a separate release workflow.
+- If you want every release asset to keep the same extension ID, set the repository Actions secret `EXTENSION_PUBLIC_KEY` to the same one-line public-key value described in [docs/extension-public-key.md](docs/extension-public-key.md).
 - Set the repository Actions variable `VITE_SYNC_SERVER_URL` to the deployed API base URL, including `https://`, so release bundles point at the hosted sync server.
 - Set the repository Actions secret `VITE_KAKAO_REST_API_KEY` so the released extension can start Kakao sign-in.
 - Set the repository Actions variable `VITE_PWA_BASE_URL` to the deployed PWA base URL so extension links open the hosted web app instead of localhost.
@@ -250,11 +262,11 @@ Recommended API environment variables:
 DATABASE_URL=postgres://...
 KAKAO_REST_API_KEY=your_kakao_rest_api_key
 KAKAO_CLIENT_SECRET=your_kakao_client_secret
-SYNC_SERVER_SIGNING_SECRET=replace_with_a_long_random_secret
+SYNC_SERVER_SIGNING_SECRET=<at-least-32-random-characters>
 ALLOW_MOCK_AUTH=false
 ```
 
-The server project now includes [apps/server/vercel.json](/Users/josemiguel/workspace-personal/kakao-lists/apps/server/vercel.json), which routes all requests through a single Vercel function backed by the shared Express app.
+The server project now includes [apps/server/vercel.json](apps/server/vercel.json), which routes all requests through a single Vercel function backed by the shared Express app.
 
 ### 3. Enable monorepo source access
 
@@ -316,10 +328,25 @@ DATABASE_URL=postgres://postgres:postgres@localhost:5432/kakao_lists
 
 ## Next Implementation Steps
 
-- Replace the mock sync adapter in `packages/domain` with the real Kakao list-sync implementation once the endpoint contract is verified.
 - Replace the localStorage repository with a browser SQLite engine wired to OPFS/WASM.
 - Decide whether the extension should authenticate directly or delegate sign-in to the PWA.
-- Replace whole-snapshot sync with versioned merge logic if concurrent multi-device edits become important.
-- Add refresh/renewal logic for cloud sessions instead of relying on a single short-lived signed token.
+- Consider staging complete imports before atomic finalization if whole-import conflicts become important. Partial list/note changes already run in per-user transactions.
+- Evaluate session renewal; sessions currently expire after seven days and require sign-in again.
 
 Created by [nyt87](https://nyt87.github.io/).
+
+## Security and recovery
+
+- Local notes are server-owned and survive imports. Use the note editor to change or clear them.
+- Local snapshots are scoped by account. Legacy unscoped caches are discarded rather than assigned to a new login.
+- Sign-out revokes the current browser session and clears its cache. Account deletion is available in PWA settings; it does not delete original Kakao Maps lists.
+- Kakao access/refresh tokens are encrypted before database storage. On first startup after this migration, plaintext token records are removed and existing signed sessions stop working. Users must sign in again. Back up and stage deployments before rollout.
+- Snapshot history retains at most 20 recorded versions per account and 30 days. Incomplete import chunks update the latest snapshot but do not create full history copies. History is not a user-facing restore feature.
+- Daily cron requires `CRON_SECRET`. It removes expired sessions, old history, and Kakao credentials unused for 60 days, alongside the existing assistant cleanup.
+- The production PWA build caches its public app shell for offline use. Private snapshots remain in the account-scoped repository; API/auth responses are not service-worker cached. First sign-in and fresh imports require a connection.
+
+## Verification and remediation
+
+Run `pnpm check`, `pnpm typecheck`, `pnpm test`, and `pnpm build`. The pull-request workflow runs these checks with PostgreSQL. `TEST_DATABASE_URL` must point to a disposable test database: tests create/drop isolated schemas. See [remediation status](docs/remediation-status.md), [API behavior](docs/remediation-contract.md), and [task checklist](docs/app-review-tasks.md).
+
+For HTTP upstream checks, run `postman mock run postman/mocks/kakao --port 4499 --no-history --output ndjson`, then run tests with `KAKAO_SIMULATION_URL=http://127.0.0.1:4499` and `TEST_DATABASE_URL` set. This uses synthetic identities only. CI runs the same fixture directly with Node. Live Kakao consent and Maps behavior still need manual checks.
