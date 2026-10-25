@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Kakao Lists",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Kakao favorite-list sync scaffold",
   "action": {
     "default_title": "Kakao Lists",
