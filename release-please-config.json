@@ -1,0 +1,46 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "include-component-in-tag": true,
+  "include-v-in-tag": true,
+  "bump-minor-pre-major": true,
+  "bump-patch-for-minor-pre-major": true,
+  "bootstrap-sha": "5642a78381c8adfe849ba2acdd7d1ba4e6746e61",
+  "plugins": ["node-workspace"],
+  "packages": {
+    "apps/extension": {
+      "release-type": "node",
+      "component": "extension",
+      "extra-files": [
+        {
+          "type": "json",
+          "path": "apps/extension/public/manifest.json",
+          "jsonpath": "$.version"
+        }
+      ]
+    },
+    "apps/pwa": {
+      "release-type": "node",
+      "component": "pwa"
+    },
+    "apps/server": {
+      "release-type": "node",
+      "component": "server"
+    },
+    "packages/domain": {
+      "release-type": "node",
+      "component": "domain"
+    },
+    "packages/kakao": {
+      "release-type": "node",
+      "component": "kakao"
+    },
+    "packages/storage": {
+      "release-type": "node",
+      "component": "storage"
+    },
+    "packages/sync": {
+      "release-type": "node",
+      "component": "sync"
+    }
+  }
+}

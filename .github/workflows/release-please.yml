@@ -1,0 +1,99 @@
+name: Prepare Releases
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: prepare-releases
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      extension_released: ${{ steps.release.outputs['apps/extension--release_created'] }}
+      extension_tag: ${{ steps.release.outputs['apps/extension--tag_name'] }}
+      extension_sha: ${{ steps.release.outputs['apps/extension--sha'] }}
+      extension_version: ${{ steps.release.outputs['apps/extension--version'] }}
+    steps:
+      - name: Create or update release PRs and releases
+        id: release
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  bundle-extension:
+    if: ${{ needs.release-please.outputs.extension_released == 'true' }}
+    needs: release-please
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ needs.release-please.outputs.extension_tag }}
+      RELEASE_SHA: ${{ needs.release-please.outputs.extension_sha }}
+      RELEASE_VERSION: ${{ needs.release-please.outputs.extension_version }}
+      EXTENSION_PUBLIC_KEY: ${{ secrets.EXTENSION_PUBLIC_KEY }}
+      VITE_SYNC_SERVER_URL: ${{ vars.VITE_SYNC_SERVER_URL }}
+      VITE_KAKAO_REST_API_KEY: ${{ secrets.VITE_KAKAO_REST_API_KEY }}
+      VITE_PWA_BASE_URL: ${{ vars.VITE_PWA_BASE_URL }}
+    steps:
+      - name: Check out extension release
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.RELEASE_SHA }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22.23.3
+          package-manager-cache: false
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify extension release version
+        run: |
+          node -e 'const fs = require("node:fs"); const pkg = JSON.parse(fs.readFileSync("apps/extension/package.json")); const manifest = JSON.parse(fs.readFileSync("apps/extension/public/manifest.json")); if (pkg.version !== process.env.RELEASE_VERSION || manifest.version !== process.env.RELEASE_VERSION) { throw new Error(`Extension release ${process.env.RELEASE_VERSION} does not match package ${pkg.version} and manifest ${manifest.version}`); }'
+
+      - name: Build extension bundle
+        id: extension_bundle
+        run: pnpm bundle:extension
+
+      - name: Upload extension zips to release
+        env:
+          BUNDLE_PATH: ${{ steps.extension_bundle.outputs.path }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cp "$BUNDLE_PATH" apps/extension/kakao-lists-extension.zip
+          gh release upload "$RELEASE_TAG" "$BUNDLE_PATH" apps/extension/kakao-lists-extension.zip --clobber
+
+      - name: Show release download
+        env:
+          BUNDLE_NAME: ${{ steps.extension_bundle.outputs.filename }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          asset_url=''
+          for attempt in 1 2 3; do
+            asset_url="$(gh release view "$RELEASE_TAG" --json assets | jq -r --arg name "$BUNDLE_NAME" '.assets[] | select(.name == $name) | .url')"
+            if [ -n "$asset_url" ]; then break; fi
+            sleep 2
+          done
+          if [ -z "$asset_url" ]; then
+            echo 'Extension asset was not found on the release.' >&2
+            exit 1
+          fi
+          {
+            echo '## Download the released extension'
+            echo
+            printf '[Download %s](%s)\n\n' "$BUNDLE_NAME" "$asset_url"
+            echo 'Unzip the file and load the extracted `dist` folder with **Load unpacked** in Chrome or Brave.'
+          } >> "$GITHUB_STEP_SUMMARY"
