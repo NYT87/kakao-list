@@ -3,6 +3,7 @@ import { HttpCloudSyncClient } from "@kakao-lists/sync";
 import type { AuthBridgeRequest, AuthBridgeResponse } from "./authBridge";
 import {
   clearStoredCloudSession,
+  readStoredCloudSession,
   writeStoredCloudSession,
 } from "./cloudSession";
 
@@ -49,6 +50,14 @@ async function handleAuthBridgeMessage(
     case "auth:begin-mock-sign-in":
       return { ok: true, session: await signInWithMock() };
     case "auth:clear-cloud-session":
+      {
+        const session = await readStoredCloudSession();
+        if (session && syncServerUrl)
+          await new HttpCloudSyncClient(
+            syncServerUrl,
+            () => session.token,
+          ).logout();
+      }
       await clearStoredCloudSession();
       return { ok: true };
   }
@@ -70,11 +79,12 @@ async function signInWithKakao() {
     );
   }
 
+  const state = crypto.randomUUID();
   const authUrl = buildKakaoAuthorizeUrl({
     clientId: kakaoClientId,
     redirectUri,
     scope: kakaoScope,
-    state: "kakao-lists-extension",
+    state,
   });
 
   const callbackUrl = await chrome.identity.launchWebAuthFlow({
@@ -86,7 +96,15 @@ async function signInWithKakao() {
     throw new Error("Kakao sign-in did not return a callback URL.");
   }
 
-  const code = new URL(callbackUrl).searchParams.get("code");
+  const callback = new URL(callbackUrl);
+  if (
+    callback.origin !== new URL(redirectUri).origin ||
+    callback.searchParams.get("state") !== state
+  )
+    throw new Error(
+      "This sign-in response could not be verified. Start again.",
+    );
+  const code = callback.searchParams.get("code");
   if (!code) {
     throw new Error(
       "No Kakao authorization code was returned to the extension.",

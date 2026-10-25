@@ -1,22 +1,29 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CloudSession, SyncStatus } from "@kakao-lists/domain";
-import { LocalStorageFavoriteListsRepository } from "@kakao-lists/storage";
+import {
+  browserStorage,
+  LocalStorageFavoriteListsRepository,
+} from "@kakao-lists/storage";
 import { HttpCloudSyncClient } from "@kakao-lists/sync";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { readStoredCloudSession } from "./cloudSession";
-import { useDebugMode, useSkipOwnerValidation } from "./preferences";
+import { useDebugMode } from "./preferences";
 import {
   readThemePreference,
   type ThemePreference,
   writeThemePreference,
 } from "./theme";
 
-const repository = new LocalStorageFavoriteListsRepository(
+const rootRepository = new LocalStorageFavoriteListsRepository(
   "kakao-lists:extension",
 );
 const syncServerUrl = import.meta.env.VITE_SYNC_SERVER_URL ?? "";
 
 export default function OptionsApp() {
   const [cloudSession, setCloudSession] = useState<CloudSession | null>(null);
+  const repository = useMemo(
+    () => rootRepository.forAccount(cloudSession?.user.id),
+    [cloudSession?.user.id],
+  );
   const [status, setStatus] = useState<SyncStatus>("idle");
   const [message, setMessage] = useState(
     "Use these controls to manage the extension snapshot cache and session.",
@@ -28,8 +35,6 @@ export default function OptionsApp() {
     readThemePreference(),
   );
   const [debugMode, setDebugMode] = useDebugMode();
-  const [skipOwnerValidation, setSkipOwnerValidation] =
-    useSkipOwnerValidation();
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const redirectUri =
     typeof chrome !== "undefined" && chrome.identity?.getRedirectURL
@@ -47,16 +52,30 @@ export default function OptionsApp() {
   }, [cloudSession]);
 
   const hydrateLocalState = useCallback(async () => {
-    const [lists, syncedAt, storedSession] = await Promise.all([
-      repository.loadLists(),
-      repository.getLastSyncedAt(),
-      readStoredCloudSession(),
-    ]);
+    const storedSession = await readStoredCloudSession();
+    const scoped = rootRepository.forAccount(storedSession?.user.id);
+    const [lists, syncedAt] = storedSession
+      ? await Promise.all([scoped.loadLists(), scoped.getLastSyncedAt()])
+      : [[], null];
     setCloudSession(storedSession);
     setStoredListCount(lists.length);
     setLastSyncedAt(syncedAt);
     setServerVersion(readLastKnownServerVersion());
   }, []);
+
+  useEffect(() => {
+    const changed = (
+      changes: Record<string, chrome.storage.StorageChange>,
+      area: string,
+    ) => {
+      if (area === "local" && changes["kakao-lists:extension-cloud-session"]) {
+        repository.clear();
+        window.location.reload();
+      }
+    };
+    chrome.storage.onChanged.addListener(changed);
+    return () => chrome.storage.onChanged.removeListener(changed);
+  }, [repository]);
 
   async function pullServerData() {
     if (!cloudSync || !cloudSession) {
@@ -75,9 +94,14 @@ export default function OptionsApp() {
 
     try {
       const result = await cloudSync.pullLatestSnapshot();
+      if ((await readStoredCloudSession())?.token !== cloudSession.token)
+        return;
       setServerVersion(result.serverVersion);
 
       if (!result.snapshot) {
+        repository.clear();
+        setStoredListCount(0);
+        setLastSyncedAt(null);
         setStatus("ready");
         setMessage("No server snapshot exists for this Kakao user yet.");
         return;
@@ -107,6 +131,7 @@ export default function OptionsApp() {
     }
 
     setBusyAction("clear-local-data");
+    repository.clear();
     clearLocalExtensionData();
     setServerVersion(null);
     setStoredListCount(0);
@@ -173,21 +198,6 @@ export default function OptionsApp() {
           </button>
           <p className="small-copy">
             Shows ownership and payload debug cards in the extension popup.
-          </p>
-          <button
-            aria-pressed={skipOwnerValidation}
-            className={`button toggle-button${skipOwnerValidation ? " is-active" : ""}`}
-            onClick={() => setSkipOwnerValidation(!skipOwnerValidation)}
-            type="button"
-          >
-            {skipOwnerValidation
-              ? "Skip owner validation: on"
-              : "Skip owner validation: off"}
-          </button>
-          <p className="small-copy">
-            Lets you edit a Kakao note even when the list is not detected as
-            yours. Kakao Maps still rejects the write if you are not the real
-            owner.
           </p>
         </section>
 
@@ -271,15 +281,13 @@ export default function OptionsApp() {
 }
 
 function clearLocalExtensionData() {
-  window.localStorage.removeItem("kakao-lists:extension");
-  window.localStorage.removeItem("kakao-lists:extension-device-id");
-  window.localStorage.removeItem("kakao-lists:extension-server-version");
+  browserStorage().removeItem("kakao-lists:extension");
+  browserStorage().removeItem("kakao-lists:extension-device-id");
+  browserStorage().removeItem("kakao-lists:extension-server-version");
 }
 
 function readLastKnownServerVersion(): number | null {
-  const raw = window.localStorage.getItem(
-    "kakao-lists:extension-server-version",
-  );
+  const raw = browserStorage().getItem("kakao-lists:extension-server-version");
   if (!raw) {
     return null;
   }
@@ -290,11 +298,11 @@ function readLastKnownServerVersion(): number | null {
 
 function writeLastKnownServerVersion(serverVersion: number | null) {
   if (serverVersion === null) {
-    window.localStorage.removeItem("kakao-lists:extension-server-version");
+    browserStorage().removeItem("kakao-lists:extension-server-version");
     return;
   }
 
-  window.localStorage.setItem(
+  browserStorage().setItem(
     "kakao-lists:extension-server-version",
     String(serverVersion),
   );

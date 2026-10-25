@@ -1,16 +1,22 @@
 import type { CloudSession } from "@kakao-lists/domain";
+import { isCloudSession } from "@kakao-lists/domain";
 
 const CLOUD_SESSION_KEY = "kakao-lists:extension-cloud-session";
 
 export async function readStoredCloudSession(): Promise<CloudSession | null> {
-  const raw = await readChromeStorageValue(CLOUD_SESSION_KEY);
+  let raw: unknown;
+  try {
+    raw = await readChromeStorageValue(CLOUD_SESSION_KEY);
+  } catch {
+    return null;
+  }
   if (typeof raw !== "string" || !raw) {
     return null;
   }
 
   try {
     const parsed = JSON.parse(raw) as CloudSession;
-    if (!isValidCloudSession(parsed)) {
+    if (!isCloudSession(parsed)) {
       await clearStoredCloudSession();
       return null;
     }
@@ -39,10 +45,11 @@ export async function clearStoredCloudSession(): Promise<void> {
   await chrome.storage.local.remove(CLOUD_SESSION_KEY);
 }
 
-function isValidCloudSession(
-  value: CloudSession | null | undefined,
-): value is CloudSession {
-  return Boolean(value?.token && value?.expiresAt && value?.user?.id);
+export async function requireCurrentCloudSession(session: CloudSession) {
+  if ((await readStoredCloudSession())?.token !== session.token)
+    throw new Error(
+      "The signed-in account changed during this action. Sign in to the intended account and try again.",
+    );
 }
 
 async function readChromeStorageValue(key: string): Promise<unknown> {

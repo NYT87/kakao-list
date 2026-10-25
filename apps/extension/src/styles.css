@@ -10,13 +10,13 @@
   --line: #333333;
   --text: #ffffff;
   --muted: #999999;
-  --primary: #d71921;
+  --primary: #ff747b;
   --accent: #e8e8e8;
   --header-bg: rgba(0, 0, 0, 0.94);
   --shadow: none;
   --danger-line: rgba(215, 25, 33, 0.34);
   --danger-fg: #ffb499;
-  --focus-ring: rgba(215, 25, 33, 0.42);
+  --focus-ring: #ff747b;
   --body-radial-1: rgba(255, 255, 255, 0.06);
   --body-radial-2: rgba(255, 255, 255, 0.03);
   --control-bg: #111111;
@@ -38,7 +38,7 @@
   --shadow: none;
   --danger-line: rgba(215, 25, 33, 0.24);
   --danger-fg: #9b3027;
-  --focus-ring: rgba(215, 25, 33, 0.34);
+  --focus-ring: #b8141c;
   --body-radial-1: rgba(0, 0, 0, 0.04);
   --body-radial-2: rgba(0, 0, 0, 0.02);
   --control-bg: #ffffff;
@@ -305,6 +305,7 @@ h1 {
 
 .segment {
   min-width: 78px;
+  min-height: 44px;
   padding: 0 14px;
   border: 0;
   border-radius: 999px;
@@ -345,10 +346,6 @@ h1 {
 .compact-list span {
   color: var(--muted);
   font-size: 0.92rem;
-}
-
-.compact-list.meta li {
-  align-items: flex-start;
 }
 
 .stored-list li {
@@ -425,7 +422,7 @@ h1 {
   gap: 12px;
 }
 
-.match-head > * {
+.match-head > :where(*) {
   min-width: 0;
 }
 
@@ -605,4 +602,32 @@ h1 {
 .note-error p {
   margin: 0;
   overflow-wrap: anywhere;
+}
+
+/* Controls remain easy to activate on touch screens and visible with a keyboard. */
+:where(button, a, input, select) {
+  scroll-margin-top: 96px;
+}
+.copy-note-button,
+.note-save,
+.match-action-icon {
+  min-width: 44px;
+  min-height: 44px;
+}
+:where(button, a, input, select, summary):focus-visible {
+  outline: 3px solid var(--focus-ring, #b8141c);
+  outline-offset: 3px;
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto;
+    animation-duration: 0.01ms;
+    transition-duration: 0.01ms;
+  }
+}
+
+.compact-list.meta > li {
+  align-items: flex-start;
 }

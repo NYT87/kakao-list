@@ -4,12 +4,21 @@ const THEME_STORAGE_KEY = "kakao-lists:extension-theme";
 const THEME_MEDIA_QUERY = "(prefers-color-scheme: dark)";
 
 export function readThemePreference(): ThemePreference {
-  const raw = window.localStorage.getItem(THEME_STORAGE_KEY);
+  let raw: string | null = null;
+  try {
+    raw = window.localStorage.getItem(THEME_STORAGE_KEY);
+  } catch {
+    /* Use device theme. */
+  }
   return raw === "light" || raw === "dark" || raw === "system" ? raw : "system";
 }
 
 export function writeThemePreference(preference: ThemePreference) {
-  window.localStorage.setItem(THEME_STORAGE_KEY, preference);
+  try {
+    window.localStorage.setItem(THEME_STORAGE_KEY, preference);
+  } catch {
+    /* Apply for this visit. */
+  }
   applyThemePreference(preference);
 }
 

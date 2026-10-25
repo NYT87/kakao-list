@@ -1,4 +1,3 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
   CloudSession,
   FavoriteList,
@@ -6,28 +5,36 @@ import type {
   PushSnapshotResult,
   SyncStatus,
 } from "@kakao-lists/domain";
-import { LocalStorageFavoriteListsRepository } from "@kakao-lists/storage";
+import { noteKey } from "@kakao-lists/domain";
+import {
+  browserStorage,
+  LocalStorageFavoriteListsRepository,
+} from "@kakao-lists/storage";
 import { HttpCloudSyncClient } from "@kakao-lists/sync";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   beginKakaoSignIn,
   beginMockSignIn,
   clearCloudSessionInBackground,
 } from "./authBridge";
-import { readStoredCloudSession } from "./cloudSession";
-import { useDebugMode, useSkipOwnerValidation } from "./preferences";
+import {
+  readStoredCloudSession,
+  requireCurrentCloudSession,
+} from "./cloudSession";
 import {
   extractSnapshotFromKakaoMapsTab,
   KakaoNoteUpdateError,
   resolveKakaoFavoriteForPlace,
   updateKakaoFavoriteNote,
 } from "./kakaoMapsExtractor";
+import { useDebugMode } from "./preferences";
 import {
   readThemePreference,
   type ThemePreference,
   writeThemePreference,
 } from "./theme";
 
-const repository = new LocalStorageFavoriteListsRepository(
+const rootRepository = new LocalStorageFavoriteListsRepository(
   "kakao-lists:extension",
 );
 const syncServerUrl = import.meta.env.VITE_SYNC_SERVER_URL ?? "";
@@ -52,6 +59,14 @@ type PopupView = "main" | "settings";
 
 export default function PopupApp() {
   const [cloudSession, setCloudSession] = useState<CloudSession | null>(null);
+  const repository = useMemo(
+    () => rootRepository.forAccount(cloudSession?.user.id),
+    [cloudSession?.user.id],
+  );
+  const dirtyLocal = useRef(new Set<string>());
+  const dirtyKakao = useRef(new Set<string>());
+  const localValues = useRef<Record<string, string>>({});
+  const kakaoValues = useRef<Record<string, string>>({});
   const [lists, setLists] = useState<FavoriteList[]>([]);
   const [status, setStatus] = useState<SyncStatus>("idle");
   const [message, setMessage] = useState(
@@ -75,8 +90,6 @@ export default function PopupApp() {
     readThemePreference(),
   );
   const [debugMode, setDebugMode] = useDebugMode();
-  const [skipOwnerValidation, setSkipOwnerValidation] =
-    useSkipOwnerValidation();
   const [activeTab, setActiveTab] = useState<ActiveTabContext>({
     kind: "default",
     tabId: null,
@@ -137,11 +150,11 @@ export default function PopupApp() {
   }, [activeTab, lists]);
 
   const hydrate = useCallback(async () => {
-    const [savedLists, syncedAt, storedSession] = await Promise.all([
-      repository.loadLists(),
-      repository.getLastSyncedAt(),
-      readStoredCloudSession(),
-    ]);
+    const storedSession = await readStoredCloudSession();
+    const scoped = rootRepository.forAccount(storedSession?.user.id);
+    const [savedLists, syncedAt] = storedSession
+      ? await Promise.all([scoped.loadLists(), scoped.getLastSyncedAt()])
+      : [[], null];
     setLists(filterVisibleLists(savedLists));
     setLastSyncedAt(syncedAt);
     setCloudSession(storedSession);
@@ -186,6 +199,30 @@ export default function PopupApp() {
       return dedupeLines(next);
     });
   }, []);
+
+  useEffect(() => {
+    const changed = (
+      changes: Record<string, chrome.storage.StorageChange>,
+      area: string,
+    ) => {
+      if (area === "local" && changes["kakao-lists:extension-cloud-session"]) {
+        repository.clear();
+        window.location.reload();
+      }
+    };
+    const warn = (event: BeforeUnloadEvent) => {
+      if (dirtyLocal.current.size || dirtyKakao.current.size) {
+        event.preventDefault();
+        event.returnValue = "";
+      }
+    };
+    chrome.storage.onChanged.addListener(changed);
+    window.addEventListener("beforeunload", warn);
+    return () => {
+      chrome.storage.onChanged.removeListener(changed);
+      window.removeEventListener("beforeunload", warn);
+    };
+  }, [repository]);
 
   async function signIn() {
     if (!cloudSync) {
@@ -291,11 +328,36 @@ export default function PopupApp() {
       const extracted = await extractSnapshotFromKakaoMapsTab();
       if (extracted) {
         setDebugLines(extracted.debug);
+        if (
+          !(await confirmImportAccount(
+            activeCloudSession,
+            extracted.snapshot.lists,
+          ))
+        )
+          throw new Error(
+            "Import cancelled. Sign into the same Kakao account in Maps and Kakao Lists, then try again.",
+          );
+        await requireCurrentCloudSession(activeCloudSession);
         const localSnapshot = sanitizeSnapshot(
           extracted.snapshot,
           activeCloudSession,
         );
-        await repository.saveSnapshot(localSnapshot);
+        const prior = new Map(
+          lists.map((list) => [
+            list.id,
+            new Map(list.items.map((item) => [item.id, item.localNote])),
+          ]),
+        );
+        for (const list of localSnapshot.lists)
+          for (const item of list.items)
+            item.localNote = prior.get(list.id)?.get(item.id);
+        await rootRepository
+          .forAccount(activeCloudSession.user.id)
+          .saveSnapshot(localSnapshot);
+        if (
+          (await readStoredCloudSession())?.token !== activeCloudSession.token
+        )
+          return;
         setLists(localSnapshot.lists);
         setLastSyncedAt(localSnapshot.syncedAt);
         setServerVersion(null);
@@ -313,20 +375,25 @@ export default function PopupApp() {
           > | null = null;
 
           if (localSnapshot.lists.length === 0) {
+            await requireCurrentCloudSession(activeCloudSession);
             finalResult = await activeCloudSync.pushSnapshot({
               deviceId: activeDeviceId,
               snapshot: localSnapshot,
             });
           } else {
             for (const [index, list] of localSnapshot.lists.entries()) {
+              await requireCurrentCloudSession(activeCloudSession);
               const isLastList = index === localSnapshot.lists.length - 1;
-              finalResult = await activeCloudSync.pushSnapshotList({
+              const chunk = {
                 deviceId: activeDeviceId,
                 list,
                 syncedAt: localSnapshot.syncedAt,
                 source: localSnapshot.source,
                 expectedListIds: isLastList ? expectedListIds : undefined,
-              });
+              };
+              if (isLastList)
+                finalResult = await activeCloudSync.pushSnapshotList(chunk);
+              else await activeCloudSync.pushSnapshotListChunk(chunk);
             }
           }
 
@@ -334,6 +401,10 @@ export default function PopupApp() {
             throw new Error("Snapshot sync did not return a server result.");
           }
 
+          if (
+            (await readStoredCloudSession())?.token !== activeCloudSession.token
+          )
+            return;
           const storedSnapshot = sanitizeSnapshot(
             finalResult.snapshot,
             activeCloudSession,
@@ -401,11 +472,16 @@ export default function PopupApp() {
       setServerVersion(result.serverVersion);
 
       if (!result.snapshot) {
+        repository.clear();
+        setLists([]);
+        setLastSyncedAt(null);
         setStatus("ready");
         setMessage("No server snapshot exists for this Kakao user yet.");
         return;
       }
 
+      if ((await readStoredCloudSession())?.token !== cloudSession.token)
+        return;
       const snapshot = sanitizeSnapshot(result.snapshot, cloudSession);
       await repository.saveSnapshot(snapshot);
       setLists(snapshot.lists);
@@ -445,7 +521,14 @@ export default function PopupApp() {
 
       try {
         const result = await fetchServerSnapshot(activeCloudSync);
+        if (
+          (await readStoredCloudSession())?.token !== activeCloudSession.token
+        )
+          return;
         if (!result.snapshot) {
+          rootRepository.forAccount(activeCloudSession.user.id).clear();
+          setLists([]);
+          setLastSyncedAt(null);
           setDebugLines((current) =>
             dedupeLines([...current, "background-refresh:no-server-snapshot"]),
           );
@@ -453,7 +536,9 @@ export default function PopupApp() {
         }
 
         const snapshot = sanitizeSnapshot(result.snapshot, activeCloudSession);
-        await repository.saveSnapshot(snapshot);
+        await rootRepository
+          .forAccount(activeCloudSession.user.id)
+          .saveSnapshot(snapshot);
         setLists(snapshot.lists);
         setLastSyncedAt(snapshot.syncedAt);
         setServerVersion(result.serverVersion);
@@ -470,6 +555,10 @@ export default function PopupApp() {
           ]),
         );
       } catch (error) {
+        setStatus("error");
+        setMessage(
+          "Showing saved data. Could not refresh your lists. Check your connection and retry.",
+        );
         setDebugLines((current) =>
           dedupeLines([
             ...current,
@@ -528,6 +617,8 @@ export default function PopupApp() {
         itemId,
         localNote,
       });
+      if ((await readStoredCloudSession())?.token !== cloudSession.token)
+        return;
       const snapshot = sanitizeSnapshot(result.snapshot, cloudSession);
       await repository.saveSnapshot(snapshot);
       setLists(snapshot.lists);
@@ -535,7 +626,9 @@ export default function PopupApp() {
       setServerVersion(result.serverVersion);
       writeLastKnownServerVersion(result.serverVersion);
       setStatus("ready");
-      setMessage("Local note saved locally and on the sync server.");
+      if (localValues.current[membershipKey] === localNote)
+        dirtyLocal.current.delete(membershipKey);
+      setMessage("Note saved.");
       setDebugLines((current) =>
         dedupeLines([...current, `local-note-saved:${listId}:${itemId}`]),
       );
@@ -600,6 +693,10 @@ export default function PopupApp() {
     });
 
     try {
+      if (!(await confirmImportAccount(cloudSession, [match.list])))
+        throw new Error(
+          "Save cancelled. Check your Kakao accounts and try again.",
+        );
       const liveFavorite = await resolveKakaoFavoriteForPlace({
         folderId,
         placeKey: match.item.placeKey,
@@ -607,6 +704,7 @@ export default function PopupApp() {
         fallbackSeq: match.item.id,
       });
       setLastResolvedKakaoFavorite(liveFavorite);
+      await requireCurrentCloudSession(cloudSession);
 
       const kakaoResult = await updateKakaoFavoriteNote({
         folderId: liveFavorite.folderId ?? folderId,
@@ -650,13 +748,19 @@ export default function PopupApp() {
         cloudSession,
       );
 
+      await requireCurrentCloudSession(cloudSession);
       await repository.saveSnapshot(updatedSnapshot);
+      if ((await readStoredCloudSession())?.token !== cloudSession.token)
+        return;
       setLists(updatedSnapshot.lists);
       setLastSyncedAt(updatedSnapshot.syncedAt);
-      setKakaoNoteDrafts((current) => ({
-        ...current,
-        [membershipKey]: kakaoResult.memo,
-      }));
+      if (kakaoValues.current[membershipKey] === kakaoNote)
+        dirtyKakao.current.delete(membershipKey);
+      setKakaoNoteDrafts((current) =>
+        current[membershipKey] === kakaoNote
+          ? { ...current, [membershipKey]: kakaoResult.memo }
+          : current,
+      );
 
       try {
         const updatedList = updatedSnapshot.lists.find(
@@ -670,6 +774,7 @@ export default function PopupApp() {
 
         let result: PushSnapshotResult;
         try {
+          await requireCurrentCloudSession(cloudSession);
           result = await cloudSync.pushSnapshotList({
             deviceId,
             list: updatedList,
@@ -691,6 +796,8 @@ export default function PopupApp() {
           }
         }
 
+        if ((await readStoredCloudSession())?.token !== cloudSession.token)
+          return;
         const snapshot = sanitizeSnapshot(result.snapshot, cloudSession);
         await repository.saveSnapshot(snapshot);
         setLists(snapshot.lists);
@@ -750,6 +857,7 @@ export default function PopupApp() {
     }
 
     setBusyAction("clear-local-data");
+    repository.clear();
     clearLocalExtensionData();
     setLists([]);
     setLastSyncedAt(null);
@@ -799,16 +907,18 @@ export default function PopupApp() {
     setLocalNoteDrafts((current) => {
       const next = { ...current };
       for (const membership of placeMemberships) {
-        next[getMembershipKey(membership.list.id, membership.item.id)] =
-          membership.item.localNote ?? "";
+        const key = getMembershipKey(membership.list.id, membership.item.id);
+        if (!dirtyLocal.current.has(key))
+          next[key] = membership.item.localNote ?? "";
       }
       return next;
     });
     setKakaoNoteDrafts((current) => {
       const next = { ...current };
       for (const membership of placeMemberships) {
-        next[getMembershipKey(membership.list.id, membership.item.id)] =
-          membership.item.kakaoNote ?? "";
+        const key = getMembershipKey(membership.list.id, membership.item.id);
+        if (!dirtyKakao.current.has(key))
+          next[key] = membership.item.kakaoNote ?? "";
       }
       return next;
     });
@@ -823,7 +933,28 @@ export default function PopupApp() {
   }
 
   async function clearSession() {
-    await clearCloudSessionInBackground();
+    if (isBusy) return;
+    if (
+      (dirtyLocal.current.size || dirtyKakao.current.size) &&
+      !window.confirm("Discard unsaved notes and sign out?")
+    )
+      return;
+    try {
+      await clearCloudSessionInBackground();
+    } catch (error) {
+      setStatus("error");
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Could not sign out. Try again.",
+      );
+      return;
+    }
+    repository.clear();
+    setLocalNoteDrafts({});
+    setKakaoNoteDrafts({});
+    dirtyLocal.current.clear();
+    dirtyKakao.current.clear();
     setCloudSession(null);
     setLists([]);
     setLastSyncedAt(null);
@@ -908,21 +1039,6 @@ export default function PopupApp() {
                 </button>
                 <p className="small-copy">
                   Shows ownership and payload debug cards in the place view.
-                </p>
-                <button
-                  aria-pressed={skipOwnerValidation}
-                  className={`button toggle-button${skipOwnerValidation ? " is-active" : ""}`}
-                  onClick={() => setSkipOwnerValidation(!skipOwnerValidation)}
-                  type="button"
-                >
-                  {skipOwnerValidation
-                    ? "Skip owner validation: on"
-                    : "Skip owner validation: off"}
-                </button>
-                <p className="small-copy">
-                  Lets you edit a Kakao note even when the list is not detected
-                  as yours. Kakao Maps still rejects the write if you are not
-                  the real owner.
                 </p>
               </div>
             </section>
@@ -1067,21 +1183,6 @@ export default function PopupApp() {
               <p className="small-copy">
                 Shows ownership and payload debug cards in the place view.
               </p>
-              <button
-                aria-pressed={skipOwnerValidation}
-                className={`button toggle-button${skipOwnerValidation ? " is-active" : ""}`}
-                onClick={() => setSkipOwnerValidation(!skipOwnerValidation)}
-                type="button"
-              >
-                {skipOwnerValidation
-                  ? "Skip owner validation: on"
-                  : "Skip owner validation: off"}
-              </button>
-              <p className="small-copy">
-                Lets you edit a Kakao note even when the list is not detected as
-                yours. Kakao Maps still rejects the write if you are not the
-                real owner.
-              </p>
             </section>
 
             <div className="actions actions-stacked">
@@ -1200,12 +1301,7 @@ export default function PopupApp() {
               {placeMemberships.map(({ list, item }) => (
                 <li className="match-card" key={`${list.id}:${item.id}`}>
                   {(() => {
-                    const isKakaoNoteOwner = canEditKakaoNote(
-                      list,
-                      cloudSession,
-                    );
-                    const canEditKakao =
-                      isKakaoNoteOwner || skipOwnerValidation;
+                    const canEditKakao = Boolean(cloudSession);
                     const kakaoNoteError =
                       kakaoNoteErrors[getMembershipKey(list.id, item.id)];
 
@@ -1243,13 +1339,16 @@ export default function PopupApp() {
                                   getMembershipKey(list.id, item.id)
                                 ] ?? ""
                               }
-                              onChange={(event) =>
+                              onChange={(event) => {
+                                const key = getMembershipKey(list.id, item.id);
+                                const value = event.target.value;
+                                dirtyKakao.current.add(key);
+                                kakaoValues.current[key] = value;
                                 setKakaoNoteDrafts((current) => ({
                                   ...current,
-                                  [getMembershipKey(list.id, item.id)]:
-                                    event.target.value,
-                                }))
-                              }
+                                  [key]: value,
+                                }));
+                              }}
                               placeholder={
                                 canEditKakao
                                   ? `Add or edit the Kakao note (${KAKAO_NOTE_MAX_LENGTH} max)`
@@ -1347,12 +1446,8 @@ export default function PopupApp() {
                                     </span>
                                   </li>
                                   <li>
-                                    <strong>Is owner</strong>
-                                    <span>{String(isKakaoNoteOwner)}</span>
-                                  </li>
-                                  <li>
-                                    <strong>Skip owner check</strong>
-                                    <span>{String(skipOwnerValidation)}</span>
+                                    <strong>Maps ownership</strong>
+                                    <span>Not verified</span>
                                   </li>
                                   <li>
                                     <strong>Can edit</strong>
@@ -1368,8 +1463,7 @@ export default function PopupApp() {
                               <code>{`item.seq=${item.id}`}</code>
                               <code>{`item.placeKey=${item.placeKey ?? "none"}`}</code>
                               <code>{`item.kakaoFolderId=${item.kakaoFolderId ?? "none"}`}</code>
-                              <code>{`isOwner=${String(isKakaoNoteOwner)}`}</code>
-                              <code>{`skipOwnerValidation=${String(skipOwnerValidation)}`}</code>
+                              <code>mapsOwnership=unverified</code>
                               <code>{`canEdit=${String(canEditKakao)}`}</code>
                               <pre className="note-debug-json">
                                 <code>
@@ -1411,13 +1505,16 @@ export default function PopupApp() {
                                 getMembershipKey(list.id, item.id)
                               ] ?? ""
                             }
-                            onChange={(event) =>
+                            onChange={(event) => {
+                              const key = getMembershipKey(list.id, item.id);
+                              const value = event.target.value;
+                              dirtyLocal.current.add(key);
+                              localValues.current[key] = value;
                               setLocalNoteDrafts((current) => ({
                                 ...current,
-                                [getMembershipKey(list.id, item.id)]:
-                                  event.target.value,
-                              }))
-                            }
+                                [key]: value,
+                              }));
+                            }}
                             placeholder="Add your own note"
                           />
                         </div>
@@ -1513,12 +1610,25 @@ interface OpenPlaceModalContext {
 }
 
 async function fetchServerSnapshot(cloudSync: HttpCloudSyncClient) {
-  const result = await cloudSync.pullLatestSnapshot();
-  if (result.snapshot) {
-    await repository.saveSnapshot(sanitizeSnapshot(result.snapshot));
-  }
+  return cloudSync.pullLatestSnapshot();
+}
 
-  return result;
+async function confirmImportAccount(
+  session: CloudSession,
+  lists: FavoriteList[],
+): Promise<boolean> {
+  const owners = [
+    ...new Set(lists.map((list) => list.ownerId).filter(Boolean)),
+  ];
+  const ownerDescription =
+    owners.length === 1
+      ? `Maps profile ${owners[0]}`
+      : "the account currently open in Kakao Maps";
+  // Kakao's app-scoped Login id cannot be compared to a Maps profile id.
+  // Confirmation is deliberately per import, never silently remembered as proof.
+  return window.confirm(
+    `Check your accounts before importing. Kakao Maps identity cannot be automatically verified against Kakao Lists. You are about to upload lists from ${ownerDescription} to Kakao Lists account ${session.user.nickname ?? session.user.id}. Confirm both are your intended account. If not, cancel and sign in again.`,
+  );
 }
 
 async function resolveActiveTabContext(
@@ -1846,7 +1956,7 @@ function dedupeLines(lines: string[]) {
 }
 
 function getMembershipKey(listId: string, itemId: string) {
-  return `${listId}:${itemId}`;
+  return noteKey(listId, itemId);
 }
 
 function buildPwaListUrl(listId: string, itemId?: string) {
@@ -1872,34 +1982,12 @@ function sanitizeSnapshot(
     source: string;
     lists: FavoriteList[];
   },
-  cloudSession?: CloudSession | null,
+  _cloudSession?: CloudSession | null,
 ) {
   return {
     ...snapshot,
-    lists: stampSnapshotOwnership(
-      filterVisibleLists(snapshot.lists),
-      cloudSession,
-    ),
+    lists: filterVisibleLists(snapshot.lists),
   };
-}
-
-// Kakao Maps only exposes folders of the signed-in Maps session, and the sync
-// server keeps one snapshot per Kakao account, so every list reaching the popup
-// belongs to the signed-in user. Record that so note editing is not blocked by
-// creator names that never match the Kakao account profile.
-function stampSnapshotOwnership(
-  lists: FavoriteList[],
-  cloudSession?: CloudSession | null,
-) {
-  if (!cloudSession) {
-    return lists;
-  }
-
-  return lists.map((list) =>
-    list.importedByUserId
-      ? list
-      : { ...list, importedByUserId: cloudSession.user.id },
-  );
 }
 
 function filterVisibleLists(lists: FavoriteList[]) {
@@ -1911,33 +1999,35 @@ function isDeletedFolderPlaceholder(list: FavoriteList) {
 }
 
 function clearLocalExtensionData() {
-  window.localStorage.removeItem("kakao-lists:extension");
-  window.localStorage.removeItem("kakao-lists:extension-device-id");
-  window.localStorage.removeItem("kakao-lists:extension-server-version");
+  browserStorage().removeItem("kakao-lists:extension");
+  browserStorage().removeItem("kakao-lists:extension-device-id");
+  browserStorage().removeItem("kakao-lists:extension-server-version");
 }
 
 function writeLastKnownServerVersion(serverVersion: number | null) {
   if (serverVersion === null) {
-    window.localStorage.removeItem("kakao-lists:extension-server-version");
+    browserStorage().removeItem("kakao-lists:extension-server-version");
     return;
   }
 
-  window.localStorage.setItem(
+  browserStorage().setItem(
     "kakao-lists:extension-server-version",
     String(serverVersion),
   );
 }
 
 function getOrCreateDeviceId() {
-  const existing = window.localStorage.getItem(
-    "kakao-lists:extension-device-id",
-  );
+  const existing = browserStorage().getItem("kakao-lists:extension-device-id");
   if (existing) {
     return existing;
   }
 
   const next = `extension-${Math.random().toString(36).slice(2, 10)}`;
-  window.localStorage.setItem("kakao-lists:extension-device-id", next);
+  try {
+    browserStorage().setItem("kakao-lists:extension-device-id", next);
+  } catch {
+    /* Ephemeral id is sufficient. */
+  }
   return next;
 }
 
@@ -1990,54 +2080,6 @@ function toKakaoNoteFailure(error: unknown): KakaoNoteFailure {
   return {
     message: error instanceof Error ? error.message : "Kakao note save failed.",
   };
-}
-
-function canEditKakaoNote(
-  list: FavoriteList,
-  cloudSession: CloudSession | null,
-) {
-  if (!cloudSession) {
-    return false;
-  }
-
-  const userId = normalizeOwnershipToken(cloudSession.user.id.trim());
-
-  if (
-    list.importedByUserId &&
-    normalizeOwnershipToken(list.importedByUserId.trim()) === userId
-  ) {
-    return true;
-  }
-
-  const creator = list.creatorName?.trim();
-  if (!creator) {
-    return false;
-  }
-
-  const normalizedCreator = normalizeOwnershipToken(creator);
-  const nickname = cloudSession.user.nickname?.trim();
-  const normalizedNickname = normalizeOwnershipToken(nickname);
-
-  if (
-    normalizedCreator.length > 0 &&
-    (normalizedCreator === normalizedNickname ||
-      normalizedCreator === userId ||
-      normalizedCreator.includes(normalizedNickname) ||
-      normalizedNickname.includes(normalizedCreator))
-  ) {
-    return true;
-  }
-
-  return isLikelyOwnedKakaoMapsList(creator);
-}
-
-function isLikelyOwnedKakaoMapsList(creator: string) {
-  const normalized = creator.trim();
-  return normalized.startsWith("map:") || /^\d+$/.test(normalized);
-}
-
-function normalizeOwnershipToken(value?: string | null) {
-  return (value ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
 
 function getUserLocale() {

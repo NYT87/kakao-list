@@ -1,8 +1,7 @@
+import { browserStorage } from "@kakao-lists/storage";
 import { useEffect, useState } from "react";
 
 const DEBUG_STORAGE_KEY = "kakao-lists:extension-debug";
-const SKIP_OWNER_VALIDATION_STORAGE_KEY =
-  "kakao-lists:extension-skip-owner-validation";
 const PREFERENCE_CHANGE_EVENT = "kakao-lists:preference-change";
 
 export function readDebugMode(): boolean {
@@ -17,26 +16,8 @@ export function useDebugMode(): [boolean, (enabled: boolean) => void] {
   return useBooleanPreference(readDebugMode, writeDebugMode);
 }
 
-export function readSkipOwnerValidation(): boolean {
-  return readBooleanPreference(SKIP_OWNER_VALIDATION_STORAGE_KEY, false);
-}
-
-export function writeSkipOwnerValidation(enabled: boolean) {
-  writeBooleanPreference(SKIP_OWNER_VALIDATION_STORAGE_KEY, enabled);
-}
-
-export function useSkipOwnerValidation(): [
-  boolean,
-  (enabled: boolean) => void,
-] {
-  return useBooleanPreference(
-    readSkipOwnerValidation,
-    writeSkipOwnerValidation,
-  );
-}
-
 function readBooleanPreference(key: string, fallback: boolean) {
-  const raw = window.localStorage.getItem(key);
+  const raw = browserStorage().getItem(key);
   if (raw === "true") {
     return true;
   }
@@ -49,7 +30,7 @@ function readBooleanPreference(key: string, fallback: boolean) {
 }
 
 function writeBooleanPreference(key: string, enabled: boolean) {
-  window.localStorage.setItem(key, String(enabled));
+  browserStorage().setItem(key, String(enabled));
   window.dispatchEvent(new CustomEvent(PREFERENCE_CHANGE_EVENT));
 }
 

@@ -1,6 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import PopupApp from "./PopupApp";
+import { RecoveryBoundary } from "./RecoveryBoundary";
 import { initializeTheme } from "./theme";
 import "./styles.css";
 
@@ -14,6 +15,8 @@ if (!rootElement) {
 
 ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
-    <PopupApp />
+    <RecoveryBoundary>
+      <PopupApp />
+    </RecoveryBoundary>
   </React.StrictMode>,
 );
