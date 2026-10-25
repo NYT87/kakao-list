@@ -17,12 +17,12 @@ import {
 } from "@kakao-lists/storage";
 import { HttpCloudSyncClient } from "@kakao-lists/sync";
 import {
+  type CSSProperties,
   useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
-  type CSSProperties,
 } from "react";
 import { AgentAccessPanel } from "./AgentAccessPanel";
 import {
