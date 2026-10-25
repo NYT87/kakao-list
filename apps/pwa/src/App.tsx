@@ -880,23 +880,11 @@ export default function App() {
       {isSettingsPage ? (
         <section className="settings-page">
           <article className="panel settings-summary">
-            <div className="settings-summary-header">
-              <div>
-                <h1 className="settings-title">Settings.</h1>
-                <p className="lede settings-lede">
-                  Choose your appearance, refresh saved lists, and manage
-                  connected assistants.
-                </p>
-              </div>
-              <div
-                aria-live="polite"
-                className={`status-card is-${status} settings-status`}
-                role="status"
-              >
-                <span className="status-label">{status}</span>
-                <p>{message}</p>
-              </div>
-            </div>
+            <h1 className="settings-title">Settings.</h1>
+            <p className="lede settings-lede">
+              Choose your appearance, refresh saved lists, and manage connected
+              assistants.
+            </p>
           </article>
 
           <div className="grid settings-grid">
@@ -1036,6 +1024,15 @@ export default function App() {
                 onNotify={setToastMessage}
               />
             ) : null}
+            <article
+              aria-live="polite"
+              className={`panel settings-activity is-${status}`}
+              role="status"
+            >
+              <h2>Sync status</h2>
+              <span className="status-label">{status}</span>
+              <p>{message}</p>
+            </article>
           </div>
         </section>
       ) : isListPage ? (
