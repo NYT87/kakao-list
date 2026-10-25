@@ -109,6 +109,11 @@ a {
   outline-offset: 2px;
 }
 
+/* Route headings receive programmatic focus for screen readers, not keyboard tab stops. */
+:where(h1, h2, h3)[tabindex="-1"]:focus {
+  outline: none;
+}
+
 .shell {
   width: min(1120px, calc(100% - 32px));
   margin: 0 auto;
