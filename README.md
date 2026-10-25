@@ -337,8 +337,6 @@ DATABASE_URL=postgres://postgres:postgres@localhost:5432/kakao_lists
 
 See the [task checklist](docs/app-review-tasks.md) and [remediation status](docs/remediation-status.md) for the remaining evidence and constraints. Import staging and session renewal remain optional design follow-ups in the [architecture decisions](docs/architecture-decisions.md).
 
-Created by [nyt87](https://nyt87.github.io/).
-
 ## Security and recovery
 
 - Local notes are server-owned and survive imports. Use the note editor to change or clear them.
