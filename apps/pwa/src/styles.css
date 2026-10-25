@@ -394,16 +394,6 @@ h3 {
   gap: 18px;
 }
 
-.settings-title {
-  max-width: none;
-  margin-bottom: 14px;
-  font-size: clamp(2rem, 4vw, 3.4rem);
-}
-
-.settings-lede {
-  margin-bottom: 0;
-}
-
 .settings-grid {
   margin-top: 0;
 }

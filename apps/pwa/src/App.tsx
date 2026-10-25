@@ -879,14 +879,6 @@ export default function App() {
       ) : null}
       {isSettingsPage ? (
         <section className="settings-page">
-          <article className="panel settings-summary">
-            <h1 className="settings-title">Settings.</h1>
-            <p className="lede settings-lede">
-              Choose your appearance, refresh saved lists, and manage connected
-              assistants.
-            </p>
-          </article>
-
           <div className="grid settings-grid">
             <article className="panel">
               <h2>Appearance</h2>
