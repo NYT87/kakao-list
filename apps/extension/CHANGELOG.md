@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.4](https://github.com/NYT87/kakao-list/compare/extension-v0.1.3...extension-v0.1.4) (2026-10-25)
+
+
+### Bug Fixes
+
+* **ci:** enforce checks before merge ([9a4f67e](https://github.com/NYT87/kakao-list/commit/9a4f67e38d6a225384f3ceb1a2528ea62621ee9a))
+* **ci:** format release changes ([24a47e4](https://github.com/NYT87/kakao-list/commit/24a47e44c6e0d7be4d3559f0f6cc2e26ee704213))
+
 ## [0.1.3](https://github.com/NYT87/kakao-list/compare/extension-v0.1.2...extension-v0.1.3) (2026-10-25)
 
 
