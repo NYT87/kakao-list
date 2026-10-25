@@ -13,7 +13,7 @@
       "extra-files": [
         {
           "type": "json",
-          "path": "apps/extension/public/manifest.json",
+          "path": "public/manifest.json",
           "jsonpath": "$.version"
         }
       ]
