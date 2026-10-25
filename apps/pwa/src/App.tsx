@@ -791,14 +791,12 @@ export default function App() {
               </button>
             ) : null}
           </div>
-          <div
-            aria-live="polite"
-            className={`status-card is-${status}`}
-            role="status"
-          >
-            <span className="status-label">{status}</span>
-            <p>{message}</p>
-          </div>
+          {status === "error" ? (
+            <div className="status-card is-error" role="alert">
+              <span className="status-label">Sign-in error</span>
+              <p>{message}</p>
+            </div>
+          ) : null}
         </section>
       </main>
     );

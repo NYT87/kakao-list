@@ -303,6 +303,10 @@ h3 {
   margin: 28px 0;
 }
 
+.auth-hero .hero-actions:last-child {
+  margin-bottom: 0;
+}
+
 .hero-actions.compact {
   margin: 0 0 18px;
 }
