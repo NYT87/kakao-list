@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Kakao Lists",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Kakao favorite-list sync scaffold",
   "action": {
     "default_title": "Kakao Lists",
@@ -12,7 +12,13 @@
     "type": "module"
   },
   "options_page": "options.html",
-  "permissions": ["storage", "alarms", "identity", "tabs", "scripting"],
+  "permissions": [
+    "storage",
+    "alarms",
+    "identity",
+    "tabs",
+    "scripting"
+  ],
   "host_permissions": [
     "http://localhost:8787/*",
     "http://127.0.0.1:8787/*",

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.2](https://github.com/NYT87/kakao-list/compare/extension-v0.1.1...extension-v0.1.2) (2026-10-25)
+
+
+### Bug Fixes
+
+* **release:** sync extension manifest version ([2a1079f](https://github.com/NYT87/kakao-list/commit/2a1079f01fe0b607a2d16fda2b3089b68e49c3d5))
+
 ## [0.1.1](https://github.com/NYT87/kakao-list/compare/extension-v0.1.0...extension-v0.1.1) (2026-10-25)
 
 
