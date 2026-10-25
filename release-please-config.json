@@ -20,27 +20,33 @@
     },
     "apps/pwa": {
       "release-type": "node",
-      "component": "pwa"
+      "component": "pwa",
+      "skip-github-release": true
     },
     "apps/server": {
       "release-type": "node",
-      "component": "server"
+      "component": "server",
+      "skip-github-release": true
     },
     "packages/domain": {
       "release-type": "node",
-      "component": "domain"
+      "component": "domain",
+      "skip-github-release": true
     },
     "packages/kakao": {
       "release-type": "node",
-      "component": "kakao"
+      "component": "kakao",
+      "skip-github-release": true
     },
     "packages/storage": {
       "release-type": "node",
-      "component": "storage"
+      "component": "storage",
+      "skip-github-release": true
     },
     "packages/sync": {
       "release-type": "node",
-      "component": "sync"
+      "component": "sync",
+      "skip-github-release": true
     }
   }
 }
