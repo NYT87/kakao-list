@@ -804,7 +804,7 @@ export default function App() {
 
   return (
     <main className="shell">
-      <header className="topbar">
+      <header className={`topbar${isSettingsPage ? " is-settings" : ""}`}>
         <div className="topbar-left">
           {showBackButton ? (
             <button
@@ -820,19 +820,26 @@ export default function App() {
           <div className="topbar-brand">
             <span className="topbar-kicker">KL</span>
             <strong>Kakao Lists</strong>
+            {isSettingsPage ? (
+              <span aria-current="page" className="topbar-page-label">
+                / Settings
+              </span>
+            ) : null}
           </div>
         </div>
 
         <div className="topbar-actions">
-          <button
-            aria-label="Settings"
-            className="icon-button"
-            disabled={isBusy}
-            onClick={openSettings}
-            type="button"
-          >
-            <GearIcon />
-          </button>
+          {!isSettingsPage ? (
+            <button
+              aria-label="Settings"
+              className="icon-button"
+              disabled={isBusy}
+              onClick={openSettings}
+              type="button"
+            >
+              <GearIcon />
+            </button>
+          ) : null}
           <button
             aria-label="Log out"
             className="icon-button"
@@ -873,7 +880,6 @@ export default function App() {
       {isSettingsPage ? (
         <section className="settings-page">
           <article className="panel settings-summary">
-            <p className="eyebrow">Kakao Lists / Settings</p>
             <div className="settings-summary-header">
               <div>
                 <h1 className="settings-title">Settings.</h1>
@@ -916,6 +922,31 @@ export default function App() {
             </article>
 
             <article className="panel">
+              <h2>Saved lists</h2>
+              <p>
+                Import new places with the Kakao Lists browser extension.
+                Refresh here to see your latest lists and notes.
+              </p>
+              <div className="hero-actions compact">
+                <button
+                  className="button primary"
+                  disabled={isBusy}
+                  onClick={() => void pullFromServer()}
+                  type="button"
+                >
+                  Refresh saved lists
+                </button>
+                <button
+                  className="button secondary"
+                  disabled={isBusy}
+                  onClick={() => void signOutCloud()}
+                  type="button"
+                >
+                  Sign out
+                </button>
+              </div>
+            </article>
+            <article className="panel settings-update">
               <h2>App Update</h2>
               <p>
                 {offlineReady
@@ -954,7 +985,6 @@ export default function App() {
                   : "This device is already using the latest downloaded app version."}
               </p>
             </article>
-
             <article className="panel">
               <h2>Your account</h2>
               <p>
@@ -982,31 +1012,6 @@ export default function App() {
                   </div>
                 </dl>
               </details>
-            </article>
-            <article className="panel">
-              <h2>Saved lists</h2>
-              <p>
-                Import new places with the Kakao Lists browser extension.
-                Refresh here to see your latest lists and notes.
-              </p>
-              <div className="hero-actions compact">
-                <button
-                  className="button primary"
-                  disabled={isBusy}
-                  onClick={() => void pullFromServer()}
-                  type="button"
-                >
-                  Refresh saved lists
-                </button>
-                <button
-                  className="button secondary"
-                  disabled={isBusy}
-                  onClick={() => void signOutCloud()}
-                  type="button"
-                >
-                  Sign out
-                </button>
-              </div>
             </article>
             <article className="panel">
               <h2>Delete account data</h2>

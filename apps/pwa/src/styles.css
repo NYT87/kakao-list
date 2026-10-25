@@ -157,6 +157,12 @@ a {
   overflow-wrap: anywhere;
 }
 
+.topbar-page-label {
+  color: var(--muted);
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+
 .topbar-kicker {
   display: inline-flex;
   align-items: center;
@@ -416,6 +422,10 @@ h3 {
 
 .settings-grid {
   margin-top: 0;
+}
+
+.settings-update {
+  grid-column: 1 / -1;
 }
 
 .panel,
@@ -919,6 +929,19 @@ h3 {
     padding-top: 12px;
     border-left: 0;
     border-top: 1px solid var(--line);
+  }
+}
+
+@media (max-width: 480px) {
+  .topbar.is-settings .topbar-brand strong {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
   }
 }
 
