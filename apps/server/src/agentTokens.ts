@@ -23,6 +23,8 @@ const LAST_USED_RESOLUTION_MS = 5 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 export const AGENT_TOKENS_SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS account_deletion_guards(kakao_user_id TEXT PRIMARY KEY,deleted_at TIMESTAMPTZ NOT NULL);
+
   CREATE TABLE IF NOT EXISTS agent_tokens (
     id UUID PRIMARY KEY,
     kakao_user_id TEXT NOT NULL,
@@ -53,6 +55,7 @@ export interface AgentTokenRecord {
 }
 
 export interface NewAgentTokenRecord {
+  browserSessionHash?: string;
   id: string;
   kakaoUserId: string;
   name: string;
@@ -140,7 +143,7 @@ export function parseAgentTokenInput(body: unknown): AgentTokenInput | null {
 
 export async function issueAgentToken(
   store: AgentTokenStore,
-  input: AgentTokenInput & { kakaoUserId: string },
+  input: AgentTokenInput & { kakaoUserId: string; browserSessionHash?: string },
   now: () => Date = () => new Date(),
 ): Promise<{ token: string; record: AgentTokenRecord }> {
   const token = generateAgentToken();
@@ -149,6 +152,7 @@ export async function issueAgentToken(
     {
       id: crypto.randomUUID(),
       kakaoUserId: input.kakaoUserId,
+      browserSessionHash: input.browserSessionHash,
       name: input.name,
       tokenHash: hashAgentToken(token),
       tokenHint: `${AGENT_TOKEN_PREFIX}…${token.slice(-4)}`,
@@ -229,6 +233,24 @@ export function createPostgresAgentTokenStore(pool: Pool): AgentTokenStore {
         await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
           `agent_tokens:${token.kakaoUserId}`,
         ]);
+        if (token.browserSessionHash) {
+          const session = await client.query(
+            "SELECT 1 FROM browser_sessions WHERE token_hash=$1 AND kakao_user_id=$2 AND expires_at>now()",
+            [token.browserSessionHash, token.kakaoUserId],
+          );
+          if (!session.rowCount) {
+            await client.query("ROLLBACK");
+            return null;
+          }
+        }
+        const deleted = await client.query(
+          "SELECT 1 FROM account_deletion_guards WHERE kakao_user_id=$1 AND deleted_at>=$2",
+          [token.kakaoUserId, token.createdAt],
+        );
+        if (deleted.rowCount) {
+          await client.query("ROLLBACK");
+          return null;
+        }
         const active = await client.query<{ count: string }>(
           `
             SELECT count(*) AS count

@@ -11,6 +11,8 @@ import type { Pool, PoolClient } from "pg";
 // and tokens are stored by SHA-256 hash only.
 
 export const OAUTH_SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS account_deletion_guards(kakao_user_id TEXT PRIMARY KEY,deleted_at TIMESTAMPTZ NOT NULL);
+
   CREATE TABLE IF NOT EXISTS oauth_clients (
     client_id TEXT PRIMARY KEY,
     client_json JSONB NOT NULL,
@@ -295,6 +297,7 @@ interface GrantRow {
 }
 
 interface CodeRow {
+  created_at: Date;
   code_hash: string;
   client_id: string;
   client_name: string;
@@ -327,7 +330,7 @@ const GRANT_COLUMNS = `
 `;
 const CODE_COLUMNS = `
   code_hash, client_id, client_name, kakao_user_id, redirect_uri,
-  code_challenge, scopes, resource, expires_at, used_at, grant_id
+  code_challenge, scopes, resource, created_at, expires_at, used_at, grant_id
 `;
 
 export function createPostgresOAuthStore(pool: Pool): OAuthStore {
@@ -461,6 +464,10 @@ export function createPostgresOAuthStore(pool: Pool): OAuthStore {
         await purgeExpiredCodes(pool, code.createdAt);
       }
       return inTransaction(async (client) => {
+        if (code)
+          await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+            `oauth_grants:${code.kakaoUserId}`,
+          ]);
         // DELETE ... RETURNING makes each sign-in complete once under
         // concurrency; the code is inserted before the deletion commits.
         const result = await client.query<PendingRow>(
@@ -476,6 +483,11 @@ export function createPostgresOAuthStore(pool: Pool): OAuthStore {
           return null;
         }
         if (code) {
+          const deleted = await client.query(
+            "SELECT 1 FROM account_deletion_guards WHERE kakao_user_id=$1 AND deleted_at>=$2",
+            [code.kakaoUserId, row.created_at],
+          );
+          if (deleted.rowCount) return null;
           await insertCode(client, code);
         }
         return toPendingAuthorization(row);
@@ -498,6 +510,15 @@ export function createPostgresOAuthStore(pool: Pool): OAuthStore {
 
     async redeemAuthorizationCode(codeHash, now, issue, maxActive) {
       return inTransaction(async (client): Promise<RedeemResult> => {
+        // Use the same lock order as account deletion, before locking a code row.
+        const owner = await client.query<{ kakao_user_id: string }>(
+          "SELECT kakao_user_id FROM oauth_authorization_codes WHERE code_hash=$1",
+          [codeHash],
+        );
+        if (!owner.rows[0]) return { status: "invalid" };
+        await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+          `oauth_grants:${owner.rows[0].kakao_user_id}`,
+        ]);
         // The row lock is held until commit, so a concurrent redemption
         // waits and then sees used_at together with the committed grant_id.
         const locked = await client.query<CodeRow>(
@@ -520,6 +541,11 @@ export function createPostgresOAuthStore(pool: Pool): OAuthStore {
           return { status: "invalid" };
         }
 
+        const deleted = await client.query(
+          "SELECT 1 FROM account_deletion_guards WHERE kakao_user_id=$1 AND deleted_at>=$2",
+          [row.kakao_user_id, row.created_at],
+        );
+        if (deleted.rowCount) return { status: "invalid" };
         const { grant, tokens } = issue(toCodeRecord(row));
         // Serialize per user so concurrent exchanges cannot pass the cap.
         await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [

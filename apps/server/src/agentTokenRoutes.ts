@@ -74,7 +74,11 @@ export function createAgentTokenRouter(options: {
     try {
       const { token, record } = await issueAgentToken(
         store,
-        { ...input, kakaoUserId: userId },
+        {
+          ...input,
+          kakaoUserId: userId,
+          browserSessionHash: response.locals.browserSessionHash,
+        },
         now,
       );
       response

@@ -1,0 +1,7 @@
+version: 1
+name: Kakao identity test fixture
+port: 4499
+interceptRequests: true
+scenarios:
+  - name: default
+    path: default.js

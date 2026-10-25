@@ -450,4 +450,13 @@ describe("Postgres OAuth store", { skip: !databaseUrl }, () => {
     const [listed] = await store.listGrantsForUser(kakaoUserId, now);
     assert.equal(listed?.lastUsedAt, now.toISOString());
   });
+  it("rejects authorization codes issued before account deletion", async () => {
+    const codeHash = await saveCode({ kakaoUserId: "deleted-user" });
+    await pool.query(
+      "INSERT INTO account_deletion_guards(kakao_user_id,deleted_at) VALUES($1,$2)",
+      ["deleted-user", at(1000)],
+    );
+    const result = await redeem(codeHash, { createdAt: at(2000) }).result;
+    assert.equal(result.status, "invalid");
+  });
 });

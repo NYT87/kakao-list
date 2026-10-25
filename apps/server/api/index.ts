@@ -1,6 +1,6 @@
-import app, { ensureServerReady } from "../src/index.js";
+import app from "../src/index.js";
 
-export default async function handler(request: unknown, response: unknown) {
-  await ensureServerReady();
+// Readiness and safe public errors are handled by the shared middleware.
+export default function handler(request: unknown, response: unknown) {
   return app(request as never, response as never);
 }

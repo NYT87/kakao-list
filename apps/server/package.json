@@ -5,9 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc -p tsconfig.build.json",
+    "build": "pnpm --filter @kakao-lists/domain build && tsc -p tsconfig.build.json",
     "start": "node dist/index.js",
-    "test": "node --import tsx --test \"src/**/*.test.ts\""
+    "test": "pnpm --filter @kakao-lists/domain build && node --import tsx --test \"src/**/*.test.ts\""
   },
   "dependencies": {
     "@kakao-lists/domain": "workspace:*",
