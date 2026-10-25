@@ -10,7 +10,50 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  tag-internal-packages:
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: write
+    steps:
+      - name: Check out main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Tag internal package versions without GitHub releases
+        run: |
+          node <<'NODE'
+          const { execFileSync } = require('node:child_process');
+          const fs = require('node:fs');
+
+          const config = JSON.parse(fs.readFileSync('release-please-config.json', 'utf8'));
+          const manifest = JSON.parse(fs.readFileSync('.release-please-manifest.json', 'utf8'));
+
+          for (const [path, options] of Object.entries(config.packages)) {
+            if (options['skip-github-release'] !== true) continue;
+
+            const version = manifest[path];
+            const component = options.component;
+            if (!version || !component) {
+              throw new Error(`Missing version or component for internal package ${path}`);
+            }
+
+            const tag = `${component}-v${version}`;
+            const remoteTag = execFileSync(
+              'git',
+              ['ls-remote', '--tags', 'origin', `refs/tags/${tag}`],
+              { encoding: 'utf8' },
+            ).trim();
+            if (remoteTag) {
+              console.log(`${tag} already exists`);
+              continue;
+            }
+
+            execFileSync('git', ['tag', tag, process.env.GITHUB_SHA], { stdio: 'inherit' });
+            execFileSync('git', ['push', 'origin', `refs/tags/${tag}`], { stdio: 'inherit' });
+          }
+          NODE
+
   release-please:
+    needs: tag-internal-packages
     runs-on: ubuntu-26.04
     permissions:
       contents: write
