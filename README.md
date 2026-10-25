@@ -328,12 +328,14 @@ The matching server connection string is:
 DATABASE_URL=postgres://postgres:postgres@localhost:5432/kakao_lists
 ```
 
-## Next Implementation Steps
+## Open follow-ups
 
-- Replace the localStorage repository with a browser SQLite engine wired to OPFS/WASM.
-- Decide whether the extension should authenticate directly or delegate sign-in to the PWA.
-- Consider staging complete imports before atomic finalization if whole-import conflicts become important. Partial list/note changes already run in per-user transactions.
-- Evaluate session renewal; sessions currently expire after seven days and require sign-in again.
+- Verify whether Kakao Maps and Kakao Login accounts can be bound automatically. Until there is a trustworthy mapping, the extension asks for manual account confirmation before imports and Kakao-note edits.
+- Upgrade the dependencies with remaining advisories once patched versions meet the repository's 14-day release-age rule.
+- Run the configured checks on GitHub and add automated browser/loaded-extension coverage.
+- Check the interface on a small phone in portrait and landscape, and run a VoiceOver pass on the Chrome extension.
+
+See the [task checklist](docs/app-review-tasks.md) and [remediation status](docs/remediation-status.md) for the remaining evidence and constraints. Import staging and session renewal remain optional design follow-ups in the [architecture decisions](docs/architecture-decisions.md).
 
 Created by [nyt87](https://nyt87.github.io/).
 
