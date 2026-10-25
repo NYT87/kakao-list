@@ -760,7 +760,6 @@ export default function App() {
         </header>
 
         <section className="hero auth-hero">
-          <p className="eyebrow">Kakao Lists / Web</p>
           <h1>Sign in with Kakao.</h1>
           <p className="lede">
             See your saved places and notes on any device. Import your lists
