@@ -1,9 +1,9 @@
 {
-  "apps/extension": "0.1.0",
-  "apps/pwa": "0.1.0",
-  "apps/server": "0.1.0",
-  "packages/domain": "0.1.0",
-  "packages/kakao": "0.1.0",
-  "packages/storage": "0.1.0",
-  "packages/sync": "0.1.0"
+  "apps/extension": "0.1.1",
+  "apps/pwa": "0.1.1",
+  "apps/server": "0.1.1",
+  "packages/domain": "0.1.1",
+  "packages/kakao": "0.1.1",
+  "packages/storage": "0.1.1",
+  "packages/sync": "0.1.1"
 }
