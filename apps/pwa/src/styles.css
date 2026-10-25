@@ -742,15 +742,15 @@ h3 {
   width: 40px;
   height: 40px;
   border-radius: 8px;
-  border: 1px solid var(--line);
-  background: var(--control-bg);
-  color: var(--primary-strong);
+  border: 1px solid var(--place-color, var(--primary-strong));
+  background: var(--place-color, var(--primary-strong));
+  color: #ffffff;
   text-decoration: none;
 }
 
 .place-map-link svg {
-  width: 20px;
-  height: 20px;
+  width: 32px;
+  height: 32px;
 }
 
 .place-map-link.is-placeholder {

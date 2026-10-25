@@ -16,7 +16,14 @@ import {
   LocalStorageFavoriteListsRepository,
 } from "@kakao-lists/storage";
 import { HttpCloudSyncClient } from "@kakao-lists/sync";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import { AgentAccessPanel } from "./AgentAccessPanel";
 import {
   requestPwaUpdate,
@@ -28,6 +35,16 @@ import {
   type ThemePreference,
   writeThemePreference,
 } from "./theme";
+
+const KAKAO_PLACE_COLORS: Record<string, { name: string; value: string }> = {
+  "01": { name: "red", value: "#c8373e" },
+  "02": { name: "orange", value: "#bd5b00" },
+  "03": { name: "yellow", value: "#927000" },
+  "04": { name: "green", value: "#2f7547" },
+  "05": { name: "blue", value: "#2464ad" },
+  "06": { name: "purple", value: "#7150a4" },
+  "07": { name: "pink", value: "#b82d6d" },
+};
 
 const rootRepository = new LocalStorageFavoriteListsRepository(
   "kakao-lists:pwa",
@@ -1063,6 +1080,13 @@ export default function App() {
               ) : (
                 <ul className="place-list">
                   {filteredItems.map((item) => {
+                    const placeColor = item.color
+                      ? KAKAO_PLACE_COLORS[item.color]
+                      : undefined;
+                    const colorLabel = placeColor
+                      ? `, ${placeColor.name} category`
+                      : "";
+
                     return (
                       <li
                         className={`place-row${route.itemId === item.id ? " is-active" : ""}`}
@@ -1071,11 +1095,18 @@ export default function App() {
                       >
                         {item.href ? (
                           <a
-                            aria-label={`Open ${item.title} in Kakao Maps`}
+                            aria-label={`Open ${item.title} in Kakao Maps${colorLabel}`}
                             className="place-map-link"
                             href={item.href}
                             target="_blank"
                             rel="noreferrer"
+                            style={
+                              placeColor
+                                ? ({
+                                    "--place-color": placeColor.value,
+                                  } as CSSProperties)
+                                : undefined
+                            }
                           >
                             <MapPinIcon />
                           </a>
@@ -1432,19 +1463,17 @@ function MapPinIcon() {
     <svg aria-hidden="true" viewBox="0 0 24 24">
       <path
         d="M12 21s-5.5-5.2-5.5-10A5.5 5.5 0 1 1 17.5 11C17.5 15.8 12 21 12 21Z"
-        fill="none"
-        stroke="currentColor"
+        fill="#ffffff"
+        stroke="#ffffff"
         strokeLinecap="round"
         strokeLinejoin="round"
-        strokeWidth="1.8"
+        strokeWidth="1.2"
       />
       <circle
         cx="12"
         cy="11"
         r="2.2"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
+        fill="var(--place-color, var(--primary-strong))"
       />
     </svg>
   );
