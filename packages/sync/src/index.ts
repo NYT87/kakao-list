@@ -13,11 +13,13 @@ import type {
   PushSnapshotResult,
   UpdateLocalNoteInput,
 } from "@kakao-lists/domain";
+import { parseSnapshot } from "@kakao-lists/domain";
 
 export class HttpCloudSyncClient implements CloudSyncClient {
   constructor(
     private readonly baseUrl: string,
     private readonly getAuthToken?: () => string | null,
+    private readonly timeoutMs = 25000,
   ) {}
 
   async exchangeKakaoCode(
@@ -58,7 +60,8 @@ export class HttpCloudSyncClient implements CloudSyncClient {
       body: JSON.stringify(input),
     });
 
-    return parseJson<PushSnapshotResult>(response);
+    const result = await parseJson<PushSnapshotResult>(response);
+    return { ...result, snapshot: parseSnapshot(result.snapshot) };
   }
 
   async pushSnapshotList(
@@ -72,7 +75,24 @@ export class HttpCloudSyncClient implements CloudSyncClient {
       body: JSON.stringify(input),
     });
 
-    return parseJson<PushSnapshotResult>(response);
+    const result = await parseJson<PushSnapshotResult>(response);
+    return { ...result, snapshot: parseSnapshot(result.snapshot) };
+  }
+
+  async pushSnapshotListChunk(
+    input: PushSnapshotListInput,
+  ): Promise<Omit<PushSnapshotResult, "snapshot">> {
+    const response = await this.request(
+      `${this.baseUrl}/api/snapshot/list?summary=true`,
+      {
+        method: "PUT",
+        headers: withAuthHeaders(this.getAuthToken, {
+          "Content-Type": "application/json",
+        }),
+        body: JSON.stringify(input),
+      },
+    );
+    return parseJson<Omit<PushSnapshotResult, "snapshot">>(response);
   }
 
   async syncFromKakao(): Promise<PushSnapshotResult> {
@@ -81,7 +101,8 @@ export class HttpCloudSyncClient implements CloudSyncClient {
       headers: withAuthHeaders(this.getAuthToken),
     });
 
-    return parseJson<PushSnapshotResult>(response);
+    const result = await parseJson<PushSnapshotResult>(response);
+    return { ...result, snapshot: parseSnapshot(result.snapshot) };
   }
 
   async pullLatestSnapshot(): Promise<PullSnapshotResult> {
@@ -89,7 +110,11 @@ export class HttpCloudSyncClient implements CloudSyncClient {
       headers: withAuthHeaders(this.getAuthToken),
     });
 
-    return parseJson<PullSnapshotResult>(response);
+    const result = await parseJson<PullSnapshotResult>(response);
+    return {
+      ...result,
+      snapshot: result.snapshot ? parseSnapshot(result.snapshot) : null,
+    };
   }
 
   async updateLocalNote(
@@ -106,7 +131,8 @@ export class HttpCloudSyncClient implements CloudSyncClient {
       },
     );
 
-    return parseJson<PushSnapshotResult>(response);
+    const result = await parseJson<PushSnapshotResult>(response);
+    return { ...result, snapshot: parseSnapshot(result.snapshot) };
   }
 
   async listAgentTokens(): Promise<AgentToken[]> {
@@ -176,12 +202,36 @@ export class HttpCloudSyncClient implements CloudSyncClient {
     await ensureOk(response);
   }
 
+  async logout(allDevices = false): Promise<void> {
+    await ensureOk(
+      await this.request(
+        `${this.baseUrl}/api/auth/${allDevices ? "logout-all" : "logout"}`,
+        { method: "POST", headers: withAuthHeaders(this.getAuthToken) },
+      ),
+    );
+  }
+
+  async deleteAccount(): Promise<void> {
+    await ensureOk(
+      await this.request(`${this.baseUrl}/api/account`, {
+        method: "DELETE",
+        headers: withAuthHeaders(this.getAuthToken),
+      }),
+    );
+  }
+
   private async request(
     input: RequestInfo | URL,
     init?: RequestInit,
   ): Promise<Response> {
     try {
-      return await fetch(input, init);
+      return await fetch(input, {
+        ...init,
+        cache: "no-store",
+        signal: init?.signal
+          ? AbortSignal.any([init.signal, AbortSignal.timeout(this.timeoutMs)])
+          : AbortSignal.timeout(this.timeoutMs),
+      });
     } catch (error) {
       throw toReadableNetworkError(this.baseUrl, error);
     }
@@ -208,21 +258,42 @@ async function parseJson<T>(response: Response): Promise<T> {
   return (await response.json()) as T;
 }
 
-async function ensureOk(response: Response) {
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(
-      text || `Sync request failed with status ${response.status}`,
-    );
+export class SyncRequestError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
   }
 }
 
-function toReadableNetworkError(baseUrl: string, error: unknown) {
-  if (error instanceof TypeError) {
-    return new Error(
-      `Could not reach the sync server at ${baseUrl}. Start the local server or update VITE_SYNC_SERVER_URL, then rebuild the extension.`,
-    );
+async function ensureOk(response: Response) {
+  if (response.ok) return;
+  let message = "Could not complete this action. Please try again.";
+  try {
+    const body = (await response.json()) as { error?: { message?: unknown } };
+    if (typeof body.error?.message === "string") message = body.error.message;
+  } catch {
+    /* HTML and upstream messages are not public UI copy. */
   }
+  if (response.status === 401)
+    message = "Your session has ended. Sign in again.";
+  if (response.status === 429)
+    message = "Too many requests. Wait a moment and try again.";
+  throw new SyncRequestError(message, response.status);
+}
 
-  return error instanceof Error ? error : new Error("Sync request failed.");
+function toReadableNetworkError(_baseUrl: string, error: unknown) {
+  if (
+    error instanceof DOMException &&
+    (error.name === "TimeoutError" || error.name === "AbortError")
+  )
+    return new Error(
+      "This request took too long. Check your connection and try again.",
+    );
+  if (error instanceof TypeError)
+    return new Error("Could not connect. Check your connection and try again.");
+  return error instanceof Error
+    ? error
+    : new Error("Could not complete this action.");
 }

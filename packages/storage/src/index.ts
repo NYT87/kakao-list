@@ -1,4 +1,8 @@
-import type { FavoriteList, SyncSnapshot } from "@kakao-lists/domain";
+import {
+  type FavoriteList,
+  parseSnapshot,
+  type SyncSnapshot,
+} from "@kakao-lists/domain";
 
 export interface FavoriteListsRepository {
   loadLists(): Promise<FavoriteList[]>;
@@ -11,6 +15,38 @@ export interface SqliteEngine {
   all<T>(sql: string, params?: unknown[]): Promise<T[]>;
 }
 
+export function browserStorage(): Storage {
+  const read = <T>(fallback: T, action: (storage: Storage) => T): T => {
+    try {
+      return action(window.localStorage);
+    } catch {
+      return fallback;
+    }
+  };
+  return {
+    getItem: (key) => read(null, (s) => s.getItem(key)),
+    setItem: (key, value) => {
+      try {
+        window.localStorage.setItem(key, value);
+      } catch {
+        throw new Error(
+          "Could not save on this device. Enable browser storage and try again.",
+        );
+      }
+    },
+    removeItem: (key) => {
+      read(undefined, (s) => s.removeItem(key));
+    },
+    clear: () => {
+      read(undefined, (s) => s.clear());
+    },
+    key: (index) => read(null, (s) => s.key(index)),
+    get length() {
+      return read(0, (s) => s.length);
+    },
+  };
+}
+
 export class LocalStorageFavoriteListsRepository
   implements FavoriteListsRepository
 {
@@ -18,32 +54,58 @@ export class LocalStorageFavoriteListsRepository
     private readonly storageKey: string,
     private readonly storage: Pick<
       Storage,
-      "getItem" | "setItem"
-    > = window.localStorage,
+      "getItem" | "setItem" | "removeItem"
+    > = browserStorage(),
   ) {}
 
-  async loadLists(): Promise<FavoriteList[]> {
-    const raw = this.storage.getItem(this.storageKey);
-    if (!raw) {
-      return [];
+  forAccount(
+    userId: string | null | undefined,
+  ): LocalStorageFavoriteListsRepository {
+    // Old records have no trustworthy owner. Never migrate them to a new login.
+    try {
+      this.storage.removeItem(this.storageKey);
+    } catch {
+      /* Reading remains possible without persistent storage. */
     }
-
-    const parsed = JSON.parse(raw) as SyncSnapshot;
-    return parsed.lists;
+    return new LocalStorageFavoriteListsRepository(
+      `${this.storageKey}:user:${encodeURIComponent(userId ?? "signed-out")}`,
+      this.storage,
+    );
   }
 
-  async saveSnapshot(snapshot: SyncSnapshot): Promise<void> {
-    this.storage.setItem(this.storageKey, JSON.stringify(snapshot));
+  clear(): void {
+    try {
+      this.storage.removeItem(this.storageKey);
+    } catch {
+      /* A blocked store cannot restore data. */
+    }
   }
 
-  async getLastSyncedAt(): Promise<string | null> {
-    const raw = this.storage.getItem(this.storageKey);
-    if (!raw) {
+  private read(): SyncSnapshot | null {
+    try {
+      const raw = this.storage.getItem(this.storageKey);
+      return raw ? parseSnapshot(JSON.parse(raw)) : null;
+    } catch {
+      this.clear();
       return null;
     }
+  }
 
-    const parsed = JSON.parse(raw) as SyncSnapshot;
-    return parsed.syncedAt;
+  async loadLists(): Promise<FavoriteList[]> {
+    return this.read()?.lists ?? [];
+  }
+  async getLastSyncedAt(): Promise<string | null> {
+    return this.read()?.syncedAt ?? null;
+  }
+  async saveSnapshot(snapshot: SyncSnapshot): Promise<void> {
+    const validated = parseSnapshot(snapshot);
+    try {
+      this.storage.setItem(this.storageKey, JSON.stringify(validated));
+    } catch {
+      throw new Error(
+        "Could not save on this device. Free some browser storage and try again.",
+      );
+    }
   }
 }
 

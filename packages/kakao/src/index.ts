@@ -48,3 +48,38 @@ export function isKakaoConfigured(
 ): config is KakaoOAuthConfig {
   return Boolean(config.clientId && config.redirectUri);
 }
+
+const STATE_KEY = "kakao-lists:oauth-attempt";
+const STATE_TTL = 10 * 60 * 1000;
+
+export function createOAuthAttempt(
+  storage: Pick<Storage, "setItem">,
+  now = Date.now(),
+): string {
+  const state = crypto.randomUUID();
+  storage.setItem(STATE_KEY, JSON.stringify({ state, createdAt: now }));
+  return state;
+}
+
+export function consumeOAuthAttempt(
+  state: string | null,
+  storage: Pick<Storage, "getItem" | "removeItem">,
+  now = Date.now(),
+): boolean {
+  try {
+    const raw = storage.getItem(STATE_KEY);
+    if (!raw || !state) return false;
+    const pending = JSON.parse(raw) as { state: string; createdAt: number };
+    if (
+      pending.state !== state ||
+      !Number.isFinite(pending.createdAt) ||
+      now < pending.createdAt ||
+      now - pending.createdAt > STATE_TTL
+    )
+      return false;
+    storage.removeItem(STATE_KEY);
+    return true;
+  } catch {
+    return false;
+  }
+}
