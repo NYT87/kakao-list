@@ -5,6 +5,7 @@ import {
 } from "@kakao-lists/storage";
 import { HttpCloudSyncClient } from "@kakao-lists/sync";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { BuildDetails } from "./BuildDetails";
 import { readStoredCloudSession } from "./cloudSession";
 import { useDebugMode } from "./preferences";
 import {
@@ -249,6 +250,7 @@ export default function OptionsApp() {
             </li>
           </ul>
         </section>
+        <BuildDetails />
       </section>
 
       {debugMode ? (

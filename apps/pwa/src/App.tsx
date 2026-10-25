@@ -932,6 +932,14 @@ export default function App() {
                     {updateAvailable ? "New version ready" : "Up to date"}
                   </dd>
                 </div>
+                <div>
+                  <dt>App version</dt>
+                  <dd>{__APP_VERSION__}</dd>
+                </div>
+                <div>
+                  <dt>Build commit</dt>
+                  <dd>{__COMMIT_ID__}</dd>
+                </div>
               </dl>
               <div className="hero-actions compact update-actions">
                 <button

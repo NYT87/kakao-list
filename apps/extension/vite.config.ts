@@ -2,9 +2,11 @@ import fs from "node:fs";
 import path from "node:path";
 import react from "@vitejs/plugin-react";
 import { defineConfig, loadEnv } from "vite";
+import { readBuildInfo } from "../../scripts/build-info.mjs";
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, path.resolve(import.meta.dirname, "../.."), "");
+  const buildInfo = readBuildInfo("apps/extension");
   const extensionPublicKey = env.EXTENSION_PUBLIC_KEY?.trim();
   const syncServerPermission = toHostPermissionPattern(
     env.VITE_SYNC_SERVER_URL,
@@ -15,6 +17,8 @@ export default defineConfig(({ mode }) => {
     envDir: "../..",
     define: {
       __DEBUG_MODE__: JSON.stringify(debugMode),
+      __APP_VERSION__: JSON.stringify(buildInfo.version),
+      __COMMIT_ID__: JSON.stringify(buildInfo.commit),
     },
     plugins: [
       react(),

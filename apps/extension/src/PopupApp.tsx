@@ -17,6 +17,7 @@ import {
   beginMockSignIn,
   clearCloudSessionInBackground,
 } from "./authBridge";
+import { BuildDetails } from "./BuildDetails";
 import {
   readStoredCloudSession,
   requireCurrentCloudSession,
@@ -1041,6 +1042,7 @@ export default function PopupApp() {
                   Shows ownership and payload debug cards in the place view.
                 </p>
               </div>
+              <BuildDetails />
             </section>
             {debugMode ? (
               <section className="mini-panel options-debug-card">
@@ -1233,6 +1235,7 @@ export default function PopupApp() {
                 </li>
               </ul>
             </section>
+            <BuildDetails />
           </section>
           <section className="mini-panel options-signout-card">
             <div className="section-label">Account</div>

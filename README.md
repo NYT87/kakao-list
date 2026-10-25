@@ -17,6 +17,8 @@ Kakao Lists is a pnpm workspace monorepo for a browser-based project that combin
 
 Unzip the download, open `chrome://extensions` or `brave://extensions`, enable **Developer mode**, choose **Load unpacked**, and select the extracted `dist` folder. See [extension public key setup](docs/extension-public-key.md) if Kakao sign-in needs a stable callback URL.
 
+The PWA's **Settings → App Update** and the extension's settings/options show their own package version and five-character build commit. The sync server's public `GET /health` response includes its `version` and `commit`, even when its database check fails. For Git deployments, Vercel provides `VERCEL_GIT_COMMIT_SHA` when [system environment variables are exposed](https://vercel.com/docs/environment-variables/system-environment-variables); builds can also set `BUILD_COMMIT_SHA`. Local builds read Git directly. A commit value of `unknown` means neither source was available. Uncommitted edits are not represented by the commit ID.
+
 ## Architecture
 
 ```text

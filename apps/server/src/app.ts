@@ -23,6 +23,7 @@ import {
   createPostgresAgentTokenStore,
 } from "./agentTokens.js";
 import { createAgentVerifier } from "./agentVerifier.js";
+import { getBuildInfo } from "./buildInfo.js";
 import { createKakaoOAuth } from "./kakaoOAuth.js";
 import { createMaintenanceRouter, runMaintenance } from "./maintenance.js";
 import { createMcpRouter } from "./mcpServer.js";
@@ -53,6 +54,7 @@ export function createApplication(options: {
   kakaoApiUrl?: string;
 }) {
   const env = options.env;
+  const buildInfo = getBuildInfo(env);
   const sessionSigningSecret = validateSecurityConfiguration(env);
   const vault = credentialVault(sessionSigningSecret);
 
@@ -132,6 +134,7 @@ export function createApplication(options: {
         response.type("application/json");
         return send(
           JSON.stringify({
+            ...(request.path === "/health" ? buildInfo : {}),
             error: {
               code: `HTTP_${response.statusCode}`,
               message: messages[response.statusCode] ?? "Request failed.",
@@ -343,6 +346,7 @@ export function createApplication(options: {
         ok: true,
         service: "kakao-lists-sync-server",
         database: "postgres",
+        ...buildInfo,
       });
     } catch (_error) {
       response.status(500).json({
