@@ -71,6 +71,25 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
+  verify-release-pr:
+    needs: release-please
+    runs-on: ubuntu-26.04
+    permissions:
+      actions: write
+      pull-requests: read
+    steps:
+      - name: Dispatch CI for the open release PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          release_branch=release-please--branches--main
+          release_pr="$(gh pr list --base main --head "$release_branch" --state open --json number --jq '.[0].number // ""')"
+          if [ -z "$release_pr" ]; then
+            echo 'No open Release Please PR to verify.'
+            exit 0
+          fi
+          gh workflow run ci.yml --ref "$release_branch"
+
   bundle-extension:
     if: ${{ needs.release-please.outputs.extension_released == 'true' }}
     needs: release-please

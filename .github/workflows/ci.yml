@@ -52,6 +52,10 @@ jobs:
       - name: Validate formatting and lint
         run: pnpm check
 
+      - name: Validate extension package and manifest versions
+        run: |
+          node -e 'const fs = require("node:fs"); const pkg = JSON.parse(fs.readFileSync("apps/extension/package.json")); const manifest = JSON.parse(fs.readFileSync("apps/extension/public/manifest.json")); if (pkg.version !== manifest.version) { throw new Error(`Extension package version ${pkg.version} does not match manifest ${manifest.version}`); }'
+
       - name: Check types
         run: pnpm typecheck
 
