@@ -10,6 +10,7 @@
   },
   "formatter": {
     "enabled": true,
+    "includes": ["**", "!apps/extension/public/manifest.json"],
     "indentStyle": "space",
     "indentWidth": 2
   },
