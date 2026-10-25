@@ -13,10 +13,15 @@ const direct =
   path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (direct) {
   await runtime.ensureServerReady();
-  runtime.app.listen(
-    Number(process.env.PORT ?? process.env.SYNC_SERVER_PORT ?? 8787),
-    () => console.info("Kakao Lists server started."),
+  const requestedPort = Number(
+    process.env.PORT ?? process.env.SYNC_SERVER_PORT ?? 8787,
   );
+  const server = runtime.app.listen(requestedPort, () => {
+    const address = server.address();
+    const port =
+      typeof address === "object" && address ? address.port : requestedPort;
+    console.info(`Kakao Lists server started on port ${port}.`);
+  });
   setInterval(() => {
     void runtime.maintain().catch(() => console.error("Maintenance failed."));
   }, 3600000).unref();
