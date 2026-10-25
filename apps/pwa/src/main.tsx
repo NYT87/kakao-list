@@ -2,6 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import { registerPwaUpdateLifecycle } from "./pwaUpdate";
+import { RecoveryBoundary } from "./RecoveryBoundary";
 import { initializeTheme } from "./theme";
 import "./styles.css";
 
@@ -16,6 +17,8 @@ if (!rootElement) {
 
 ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
-    <App />
+    <RecoveryBoundary>
+      <App />
+    </RecoveryBoundary>
   </React.StrictMode>,
 );

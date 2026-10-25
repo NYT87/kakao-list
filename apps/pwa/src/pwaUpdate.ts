@@ -1,96 +1,72 @@
 const UPDATE_EVENT = "kakao-lists:pwa-update";
-
-type UpdateEventDetail = {
-  available: boolean;
-};
-
+type UpdateEventDetail = { available: boolean; offlineReady: boolean };
 let activeRegistration: ServiceWorkerRegistration | null = null;
+let state: UpdateEventDetail = { available: false, offlineReady: false };
+function emit(change: Partial<UpdateEventDetail>) {
+  state = { ...state, ...change };
+  window.dispatchEvent(new CustomEvent(UPDATE_EVENT, { detail: state }));
+}
 
 export function registerPwaUpdateLifecycle() {
-  if (!("serviceWorker" in navigator)) {
-    return;
-  }
-
+  if (!("serviceWorker" in navigator)) return;
+  let requested = false;
   let refreshing = false;
-
-  window.addEventListener("load", () => {
-    navigator.serviceWorker
-      .register("/sw.js")
-      .then((registration) => {
-        activeRegistration = registration;
-
-        if (registration.waiting) {
-          emitUpdateAvailability(true);
-        }
-
-        registration.addEventListener("updatefound", () => {
-          const nextWorker = registration.installing;
-          if (!nextWorker) {
-            return;
-          }
-
-          nextWorker.addEventListener("statechange", () => {
-            if (
-              nextWorker.state === "installed" &&
-              navigator.serviceWorker.controller
-            ) {
-              emitUpdateAvailability(true);
-            }
-          });
-        });
-
-        void registration.update().catch(() => {
-          // Ignore update polling errors in the scaffold stage.
-        });
-      })
-      .catch(() => {
-        // Ignore registration errors in the scaffold stage.
-      });
+  window.addEventListener("kakao-lists:apply-update", () => {
+    requested = true;
   });
-
+  // Register immediately: waiting on window.load can delay offline readiness
+  // indefinitely when an optional third-party font request is slow.
+  void navigator.serviceWorker
+    .register("/sw.js")
+    .then((registration) => {
+      activeRegistration = registration;
+      if (registration.waiting) emit({ available: true });
+      const observe = (worker: ServiceWorker | null) => {
+        worker?.addEventListener("statechange", () => {
+          if (
+            worker.state === "installed" &&
+            navigator.serviceWorker.controller
+          )
+            emit({ available: true });
+        });
+      };
+      observe(registration.installing);
+      registration.addEventListener("updatefound", () =>
+        observe(registration.installing),
+      );
+      void registration.update().catch(() => {});
+    })
+    .catch(() => {
+      emit({ offlineReady: false });
+    });
+  void navigator.serviceWorker.ready.then(() => emit({ offlineReady: true }));
   navigator.serviceWorker.addEventListener("controllerchange", () => {
-    if (refreshing) {
-      return;
-    }
-
+    // First activation claims the page; only an explicit update should reload it.
+    if (!requested || refreshing) return;
     refreshing = true;
     window.location.reload();
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible")
+      void activeRegistration?.update().catch(() => {});
   });
 }
 
 export function requestPwaUpdate() {
-  const waitingWorker = activeRegistration?.waiting;
-  if (!waitingWorker) {
-    return false;
-  }
-
-  waitingWorker.postMessage({
-    type: "SKIP_WAITING",
-  });
-  emitUpdateAvailability(false);
+  const worker = activeRegistration?.waiting;
+  if (!worker) return false;
+  window.dispatchEvent(new Event("kakao-lists:apply-update"));
+  worker.postMessage({ type: "SKIP_WAITING" });
+  emit({ available: false });
   return true;
 }
 
 export function subscribeToPwaUpdateAvailability(
   listener: (detail: UpdateEventDetail) => void,
 ) {
-  const handler = (event: Event) => {
-    const customEvent = event as CustomEvent<UpdateEventDetail>;
-    listener(customEvent.detail);
-  };
-
-  window.addEventListener(UPDATE_EVENT, handler as EventListener);
-  return () => {
-    window.removeEventListener(UPDATE_EVENT, handler as EventListener);
-  };
-}
-
-function emitUpdateAvailability(available: boolean) {
-  window.dispatchEvent(
-    new CustomEvent<UpdateEventDetail>(UPDATE_EVENT, {
-      detail: {
-        available,
-      },
-    }),
-  );
+  const handler = (event: Event) =>
+    listener((event as CustomEvent<UpdateEventDetail>).detail);
+  window.addEventListener(UPDATE_EVENT, handler);
+  listener(state);
+  return () => window.removeEventListener(UPDATE_EVENT, handler);
 }

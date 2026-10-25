@@ -3,26 +3,37 @@ import type {
   FavoriteList,
   SyncStatus,
 } from "@kakao-lists/domain";
+import { isCloudSession, noteKey } from "@kakao-lists/domain";
 import {
   buildKakaoAuthorizeUrl,
+  consumeOAuthAttempt,
+  createOAuthAttempt,
   isKakaoConfigured,
   readKakaoCallback,
 } from "@kakao-lists/kakao";
-import { LocalStorageFavoriteListsRepository } from "@kakao-lists/storage";
+import {
+  browserStorage,
+  LocalStorageFavoriteListsRepository,
+} from "@kakao-lists/storage";
 import { HttpCloudSyncClient } from "@kakao-lists/sync";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AgentAccessPanel } from "./AgentAccessPanel";
 import {
   requestPwaUpdate,
   subscribeToPwaUpdateAvailability,
 } from "./pwaUpdate";
+import { parseRoute } from "./routes";
 import {
   readThemePreference,
   type ThemePreference,
   writeThemePreference,
 } from "./theme";
 
-const repository = new LocalStorageFavoriteListsRepository("kakao-lists:pwa");
+const rootRepository = new LocalStorageFavoriteListsRepository(
+  "kakao-lists:pwa",
+);
+let callbackExchange: { code: string; promise: Promise<CloudSession> } | null =
+  null;
 const syncServerUrl = import.meta.env.VITE_SYNC_SERVER_URL ?? "";
 const mockAuthEnabled = import.meta.env.VITE_ENABLE_MOCK_AUTH === "true";
 
@@ -46,7 +57,8 @@ function getScrollBehavior(): ScrollBehavior {
 
 export default function App() {
   const callback = useMemo(() => readKakaoCallback(window.location), []);
-  const [lists, setLists] = useState<FavoriteList[]>([]);
+  const [storedLists, setStoredLists] = useState<FavoriteList[]>([]);
+  const [listsOwner, setListsOwner] = useState<string | null>(null);
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
   const [status, setStatus] = useState<SyncStatus>("idle");
   const [message, setMessage] = useState<string>(
@@ -55,6 +67,26 @@ export default function App() {
   const [cloudSession, setCloudSession] = useState<CloudSession | null>(() =>
     readCloudSession(),
   );
+  const repository = useMemo(
+    () => rootRepository.forAccount(cloudSession?.user.id),
+    [cloudSession?.user.id],
+  );
+  const lists = useMemo(
+    () => (listsOwner === cloudSession?.user.id ? storedLists : []),
+    [listsOwner, storedLists, cloudSession?.user.id],
+  );
+  const setLists = useCallback(
+    (next: FavoriteList[]) => {
+      setListsOwner(cloudSession?.user.id ?? null);
+      setStoredLists(next);
+    },
+    [cloudSession?.user.id],
+  );
+  const dirtyDrafts = useRef(new Set<string>());
+  const draftValues = useRef<Record<string, string>>({});
+  const hasDirtyDrafts = useCallback(() => dirtyDrafts.current.size > 0, []);
+  const callbackHandled = useRef(false);
+  const authGeneration = useRef(0);
   const [serverVersion, setServerVersion] = useState<number | null>(null);
   const [route, setRoute] = useState<AppRoute>(() => readRoute());
   const [localNoteDrafts, setLocalNoteDrafts] = useState<
@@ -70,16 +102,17 @@ export default function App() {
     useState(false);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [updateAvailable, setUpdateAvailable] = useState(false);
+  const [offlineReady, setOfflineReady] = useState(false);
   const [isApplyingUpdate, setIsApplyingUpdate] = useState(false);
 
   const cloudSync = useMemo(() => {
     return syncServerUrl
       ? new HttpCloudSyncClient(
           syncServerUrl,
-          () => readCloudSession()?.token ?? null,
+          () => cloudSession?.token ?? null,
         )
       : null;
-  }, []);
+  }, [cloudSession?.token]);
 
   const deviceId = useMemo(() => getOrCreateDeviceId(), []);
   const selectedList = route.listId
@@ -189,15 +222,54 @@ export default function App() {
   }, [hasHydratedLocalSnapshot, lists.length, route, selectedList]);
 
   useEffect(() => {
-    if (!selectedList) {
-      return;
-    }
+    const next: Record<string, string> = {};
+    for (const list of lists)
+      for (const item of list.items)
+        next[noteKey(list.id, item.id)] = item.localNote ?? "";
+    setLocalNoteDrafts((current) => {
+      const result = { ...next };
+      for (const key of dirtyDrafts.current)
+        if (key in current) result[key] = current[key];
+      draftValues.current = result;
+      return result;
+    });
+  }, [lists]);
 
-    const nextDrafts = Object.fromEntries(
-      selectedList.items.map((item) => [item.id, item.localNote ?? ""]),
-    );
-    setLocalNoteDrafts(nextDrafts);
-  }, [selectedList]);
+  useEffect(() => {
+    const warn = (event: BeforeUnloadEvent) => {
+      if (hasDirtyDrafts()) {
+        event.preventDefault();
+        event.returnValue = "";
+      }
+    };
+    const change = (event: StorageEvent) => {
+      if (event.key !== null && event.key !== "kakao-lists:cloud-session")
+        return;
+      authGeneration.current += 1;
+      const session = readCloudSession();
+      setCloudSession(session);
+      setStoredLists([]);
+      setListsOwner(null);
+      setLocalNoteDrafts({});
+      dirtyDrafts.current.clear();
+    };
+    window.addEventListener("beforeunload", warn);
+    window.addEventListener("storage", change);
+    return () => {
+      window.removeEventListener("beforeunload", warn);
+      window.removeEventListener("storage", change);
+    };
+  }, [hasDirtyDrafts]);
+
+  useEffect(() => {
+    const selector =
+      route.view === "list" && route.listId ? ".detail-summary h2" : "h1,h2,h3";
+    const target = document.querySelector<HTMLElement>(selector);
+    if (target) {
+      target.tabIndex = -1;
+      target.focus({ preventScroll: true });
+    }
+  }, [route.view, route.listId]);
 
   useEffect(() => {
     if (selectedList) {
@@ -246,7 +318,8 @@ export default function App() {
   }, [toastMessage]);
 
   useEffect(() => {
-    return subscribeToPwaUpdateAvailability(({ available }) => {
+    return subscribeToPwaUpdateAvailability(({ available, offlineReady }) => {
+      setOfflineReady(offlineReady);
       setUpdateAvailable(available);
       if (!available) {
         setIsApplyingUpdate(false);
@@ -261,17 +334,21 @@ export default function App() {
       }
 
       setStatus("syncing");
-      setMessage(
-        "Pulling the latest snapshot created by the extension from the sync server...",
-      );
+      setMessage("Refreshing your saved lists…");
 
       try {
         const result = await activeCloudSync.pullLatestSnapshot();
+        if (readCloudSession()?.token !== activeCloudSession.token) return;
         setServerVersion(result.serverVersion);
 
         if (!result.snapshot) {
+          repository.clear();
+          setLists([]);
+          setLastSyncedAt(null);
           setStatus("ready");
-          setMessage("No extension-created snapshot exists on the server yet.");
+          setMessage(
+            "No saved lists yet. Import them with the Kakao Lists extension.",
+          );
           return;
         }
 
@@ -280,85 +357,103 @@ export default function App() {
         setLists(snapshot.lists);
         setLastSyncedAt(snapshot.syncedAt);
         setStatus("ready");
-        setMessage(
-          `Loaded ${result.snapshot.lists.length} saved lists created by the extension for Kakao user ${result.userId}.`,
-        );
+        setMessage("Your saved lists are up to date.");
       } catch (error) {
         setStatus("error");
         setMessage(
-          error instanceof Error ? error.message : "Server pull failed.",
+          `Showing saved data. ${error instanceof Error ? error.message : "Could not refresh your lists."}`,
         );
       }
     },
-    [cloudSession, cloudSync],
+    [cloudSession, cloudSync, repository, setLists],
   );
 
-  const hydrate = useCallback(async () => {
-    const [savedLists, syncedAt] = await Promise.all([
-      repository.loadLists(),
-      repository.getLastSyncedAt(),
-    ]);
-    setLists(filterVisibleLists(savedLists));
-    setLastSyncedAt(syncedAt);
-    setHasHydratedLocalSnapshot(true);
-
+  useEffect(() => {
+    if (callbackHandled.current || (!callback.code && !callback.error)) return;
+    callbackHandled.current = true;
     if (callback.error) {
       setStatus("error");
-      setMessage(`Kakao returned an error: ${callback.error}`);
+      setMessage("Sign-in was cancelled. Please try again.");
       return;
     }
-
-    if (callback.code && cloudSync) {
-      setStatus("syncing");
-      setMessage(
-        "Exchanging the Kakao authorization code with the sync server...",
-      );
-
-      try {
-        const session = await cloudSync.exchangeKakaoCode({
-          code: callback.code,
-          redirectUri: kakaoConfig.redirectUri,
-        });
-        writeCloudSession(session);
-        setCloudSession(session);
-        window.history.replaceState(
-          {},
-          document.title,
-          window.location.pathname + window.location.hash,
-        );
-        setStatus("ready");
-        setMessage(
-          `Signed in as Kakao user ${session.user.id}. Pulling the latest snapshot created by the extension...`,
-        );
-        await syncOnLoad(cloudSync, session);
-        return;
-      } catch (error) {
-        setStatus("error");
-        setMessage(
-          error instanceof Error
-            ? error.message
-            : "Kakao server sign-in failed.",
-        );
-        return;
+    if (!callback.code || !syncServerUrl) return;
+    const code = callback.code;
+    const generation = authGeneration.current;
+    try {
+      if (!callbackExchange || callbackExchange.code !== code) {
+        if (!consumeOAuthAttempt(callback.state, window.sessionStorage))
+          throw new Error(
+            "This sign-in attempt has expired. Start sign-in again.",
+          );
+        callbackExchange = {
+          code,
+          promise: new HttpCloudSyncClient(syncServerUrl).exchangeKakaoCode({
+            code,
+            redirectUri: kakaoConfig.redirectUri,
+          }),
+        };
       }
-    }
-
-    if (callback.code) {
-      setStatus("ready");
-      setMessage(
-        "Authorization code captured. Configure the sync server to turn it into a cloud session.",
+      window.history.replaceState(
+        {},
+        document.title,
+        window.location.pathname + window.location.hash,
       );
-      return;
+      setStatus("syncing");
+      setMessage("Signing you in…");
+      void callbackExchange.promise
+        .then((session) => {
+          if (authGeneration.current !== generation) {
+            void new HttpCloudSyncClient(syncServerUrl, () => session.token)
+              .logout()
+              .catch(() => {});
+            return;
+          }
+          writeCloudSession(session);
+          setCloudSession(session);
+          setStatus("ready");
+          setMessage("Signed in.");
+        })
+        .catch((error) => {
+          setStatus("error");
+          setMessage(
+            error instanceof Error
+              ? error.message
+              : "Could not sign in. Please try again.",
+          );
+        });
+    } catch (error) {
+      setStatus("error");
+      setMessage(error instanceof Error ? error.message : "Could not sign in.");
     }
-
-    if (cloudSync && cloudSession) {
-      await syncOnLoad(cloudSync, cloudSession);
-    }
-  }, [callback.code, callback.error, cloudSession, cloudSync, syncOnLoad]);
+  }, [callback]);
 
   useEffect(() => {
-    void hydrate();
-  }, [hydrate]);
+    let cancelled = false;
+    dirtyDrafts.current.clear();
+    setLocalNoteDrafts({});
+    setStoredLists([]);
+    setListsOwner(null);
+    setLastSyncedAt(null);
+    if (!cloudSession) return;
+    const session = cloudSession;
+    void Promise.all([repository.loadLists(), repository.getLastSyncedAt()])
+      .then(([saved, at]) => {
+        if (cancelled || readCloudSession()?.token !== session.token) return;
+        setLists(filterVisibleLists(saved));
+        setLastSyncedAt(at);
+        setHasHydratedLocalSnapshot(true);
+        if (cloudSync) void syncOnLoad(cloudSync, session);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setStatus("error");
+          setMessage("Could not load saved data. Try refreshing your lists.");
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [cloudSession, repository, cloudSync, setLists, syncOnLoad]);
 
   async function signInWithMock() {
     if (!cloudSync) {
@@ -371,6 +466,7 @@ export default function App() {
       return;
     }
 
+    authGeneration.current += 1;
     setBusyAction("mock-sign-in");
     setStatus("syncing");
     setMessage("Creating a mock cloud session...");
@@ -412,26 +508,31 @@ export default function App() {
 
     setBusyAction("pull-server");
     setStatus("syncing");
-    setMessage("Downloading the latest snapshot from the sync server...");
+    setMessage("Refreshing your saved lists…");
 
     try {
       const result = await cloudSync.pullLatestSnapshot();
+      if (readCloudSession()?.token !== cloudSession.token) return;
       setServerVersion(result.serverVersion);
 
       if (!result.snapshot) {
+        repository.clear();
+        setLists([]);
+        setLastSyncedAt(null);
         setStatus("ready");
-        setMessage("No server snapshot exists for this Kakao user yet.");
+        setMessage(
+          "No saved lists yet. Import them with the Kakao Lists extension.",
+        );
         return;
       }
 
+      if (readCloudSession()?.token !== cloudSession.token) return;
       const snapshot = sanitizeSnapshot(result.snapshot);
       await repository.saveSnapshot(snapshot);
       setLists(snapshot.lists);
       setLastSyncedAt(snapshot.syncedAt);
       setStatus("ready");
-      setMessage(
-        `Pulled server snapshot version ${result.serverVersion} from Kakao user ${result.userId}.`,
-      );
+      setMessage("Your saved lists are up to date.");
     } catch (error) {
       setStatus("error");
       setMessage(error instanceof Error ? error.message : "Pull failed.");
@@ -440,7 +541,30 @@ export default function App() {
     }
   }
 
-  function signOutCloud() {
+  async function signOutCloud() {
+    if (
+      isBusy ||
+      (hasDirtyDrafts() &&
+        !window.confirm("Discard unsaved notes and sign out?"))
+    )
+      return;
+    authGeneration.current += 1;
+    setBusyAction("logout");
+    try {
+      await cloudSync?.logout();
+    } catch (error) {
+      setStatus("error");
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Could not sign out. Try again when connected.",
+      );
+      setBusyAction(null);
+      return;
+    }
+    repository.clear();
+    dirtyDrafts.current.clear();
+    setLocalNoteDrafts({});
     clearCloudSession();
     setCloudSession(null);
     setLists([]);
@@ -453,10 +577,16 @@ export default function App() {
     });
     navigateToOverview();
     setStatus("idle");
-    setMessage("Cloud session cleared from this browser.");
+    setMessage("Signed out.");
+    setBusyAction(null);
   }
 
   function openList(listId: string, itemId?: string) {
+    if (
+      hasDirtyDrafts() &&
+      !window.confirm("Leave this page with unsaved notes?")
+    )
+      return;
     setRoute({
       view: "list",
       listId,
@@ -466,6 +596,11 @@ export default function App() {
   }
 
   function goBackToMainPage() {
+    if (
+      hasDirtyDrafts() &&
+      !window.confirm("Leave this page with unsaved notes?")
+    )
+      return;
     setRoute({
       view: "overview",
       listId: null,
@@ -475,6 +610,11 @@ export default function App() {
   }
 
   function openSettings() {
+    if (
+      hasDirtyDrafts() &&
+      !window.confirm("Leave this page with unsaved notes?")
+    )
+      return;
     setRoute({
       view: "settings",
       listId: null,
@@ -489,6 +629,11 @@ export default function App() {
   }
 
   function applyPwaUpdate() {
+    if (
+      hasDirtyDrafts() &&
+      !window.confirm("Update now and discard unsaved notes?")
+    )
+      return;
     if (!requestPwaUpdate()) {
       setUpdateAvailable(false);
       setIsApplyingUpdate(false);
@@ -512,7 +657,8 @@ export default function App() {
       return;
     }
 
-    const localNote = localNoteDrafts[itemId] ?? "";
+    const key = noteKey(listId, itemId);
+    const localNote = localNoteDrafts[key] ?? "";
     setBusyAction(actionKey);
     setStatus("syncing");
     setMessage("Saving your local note to the sync server...");
@@ -523,13 +669,16 @@ export default function App() {
         itemId,
         localNote,
       });
+      if (readCloudSession()?.token !== cloudSession.token) return;
       const snapshot = sanitizeSnapshot(result.snapshot);
       await repository.saveSnapshot(snapshot);
       setLists(snapshot.lists);
       setLastSyncedAt(snapshot.syncedAt);
       setServerVersion(result.serverVersion);
       setStatus("ready");
-      setMessage("Local note saved to the sync server.");
+      if (draftValues.current[key] === localNote)
+        dirtyDrafts.current.delete(key);
+      setMessage("Note saved.");
       setToastMessage("Note saved");
     } catch (error) {
       setStatus("error");
@@ -555,12 +704,50 @@ export default function App() {
     }
   }
 
-  const authorizeUrl = isKakaoConfigured(kakaoConfig)
-    ? buildKakaoAuthorizeUrl({
-        ...kakaoConfig,
-        state: "kakao-lists-pwa",
-      })
-    : null;
+  const authorizeUrl = isKakaoConfigured(kakaoConfig) ? "#sign-in" : null;
+  function startSignIn(event: React.MouseEvent<HTMLElement>) {
+    event.preventDefault();
+    if (isBusy) return;
+    try {
+      const state = createOAuthAttempt(window.sessionStorage);
+      window.location.assign(buildKakaoAuthorizeUrl({ ...kakaoConfig, state }));
+    } catch {
+      setStatus("error");
+      setMessage("Enable browser storage to sign in securely.");
+    }
+  }
+
+  async function deleteAccount() {
+    if (
+      !cloudSync ||
+      isBusy ||
+      !window.confirm(
+        "Delete all your saved lists, notes, and assistant connections from Kakao Lists? This cannot be undone.",
+      )
+    )
+      return;
+    authGeneration.current += 1;
+    setBusyAction("delete-account");
+    try {
+      await cloudSync.deleteAccount();
+      repository.clear();
+      clearCloudSession();
+      dirtyDrafts.current.clear();
+      setLocalNoteDrafts({});
+      setCloudSession(null);
+      setStoredLists([]);
+      navigateToOverview();
+      setStatus("idle");
+      setMessage("Your Kakao Lists data was deleted.");
+    } catch (error) {
+      setStatus("error");
+      setMessage(
+        error instanceof Error ? error.message : "Could not delete your data.",
+      );
+    } finally {
+      setBusyAction(null);
+    }
+  }
 
   if (!cloudSession) {
     return (
@@ -576,9 +763,8 @@ export default function App() {
           <p className="eyebrow">Kakao Lists / Web</p>
           <h1>Sign in with Kakao.</h1>
           <p className="lede">
-            Your saved lists page appears after an active session exists. The
-            web app now reads the latest snapshot produced by the extension
-            instead of importing directly from Kakao Maps.
+            See your saved places and notes on any device. Import your lists
+            with the Kakao Lists browser extension, then view them here.
           </p>
           <div className="hero-actions">
             {authorizeUrl ? (
@@ -586,11 +772,7 @@ export default function App() {
                 aria-disabled={isBusy}
                 className={`button primary${isBusy ? " is-disabled" : ""}`}
                 href={isBusy ? undefined : authorizeUrl}
-                onClick={(event) => {
-                  if (isBusy) {
-                    event.preventDefault();
-                  }
-                }}
+                onClick={startSignIn}
               >
                 Sign in with Kakao
               </a>
@@ -666,6 +848,31 @@ export default function App() {
         </div>
       </header>
 
+      {status === "error" ? (
+        <div className="status-card is-error" role="alert">
+          <p>{message}</p>
+          <button
+            type="button"
+            className="button secondary"
+            disabled={isBusy}
+            onClick={() => void pullFromServer()}
+          >
+            Try again
+          </button>
+          <button
+            type="button"
+            className="button secondary"
+            onClick={startSignIn}
+          >
+            Sign in again
+          </button>
+        </div>
+      ) : null}
+      {status === "syncing" && !isSettingsPage ? (
+        <p role="status" aria-live="polite">
+          Refreshing your lists…
+        </p>
+      ) : null}
       {isSettingsPage ? (
         <section className="settings-page">
           <article className="panel settings-summary">
@@ -674,8 +881,8 @@ export default function App() {
               <div>
                 <h1 className="settings-title">Settings.</h1>
                 <p className="lede settings-lede">
-                  Manage your local cloud session, pull the latest server
-                  snapshot, and review sync status in one place.
+                  Choose your appearance, refresh saved lists, and manage
+                  connected assistants.
                 </p>
               </div>
               <div
@@ -713,6 +920,11 @@ export default function App() {
 
             <article className="panel">
               <h2>App Update</h2>
+              <p>
+                {offlineReady
+                  ? "Ready to open offline on this device."
+                  : "Keep this page open while offline support is prepared."}
+              </p>
               <dl className="meta-list update-meta">
                 <div>
                   <dt>Status</dt>
@@ -739,67 +951,73 @@ export default function App() {
             </article>
 
             <article className="panel">
-              <h2>Session Information</h2>
-              <dl className="meta-list">
-                <div>
-                  <dt>Kakao user</dt>
-                  <dd>{cloudSession.user.id}</dd>
-                </div>
-                <div>
-                  <dt>Expires at</dt>
-                  <dd>{formatDate(cloudSession.expiresAt)}</dd>
-                </div>
-                <div>
-                  <dt>Last synced</dt>
-                  <dd>{lastSyncedAt ?? "Never"}</dd>
-                </div>
-                <div>
-                  <dt>Device id</dt>
-                  <dd>{deviceId}</dd>
-                </div>
-                <div>
-                  <dt>Server version</dt>
-                  <dd>{serverVersion ?? "Not pushed yet"}</dd>
-                </div>
-              </dl>
+              <h2>Your account</h2>
+              <p>
+                Signed in as {cloudSession.user.nickname ?? "a Kakao account"}.
+              </p>
+              <p>Sign-in expires {formatDate(cloudSession.expiresAt)}.</p>
+              <p>
+                Lists last imported:{" "}
+                {lastSyncedAt ? formatDate(lastSyncedAt) : "Not yet"}.
+              </p>
+              <details>
+                <summary>Technical details</summary>
+                <dl className="meta-list">
+                  <div>
+                    <dt>Account id</dt>
+                    <dd>{cloudSession.user.id}</dd>
+                  </div>
+                  <div>
+                    <dt>Device id</dt>
+                    <dd>{deviceId}</dd>
+                  </div>
+                  <div>
+                    <dt>Saved version</dt>
+                    <dd>{serverVersion ?? "None"}</dd>
+                  </div>
+                </dl>
+              </details>
             </article>
-
             <article className="panel">
-              <h2>Cloud Sync</h2>
+              <h2>Saved lists</h2>
+              <p>
+                Import new places with the Kakao Lists browser extension.
+                Refresh here to see your latest lists and notes.
+              </p>
               <div className="hero-actions compact">
                 <button
                   className="button primary"
                   disabled={isBusy}
-                  onClick={pullFromServer}
+                  onClick={() => void pullFromServer()}
                   type="button"
                 >
-                  Pull Latest Server Snapshot
+                  Refresh saved lists
                 </button>
                 <button
                   className="button secondary"
                   disabled={isBusy}
-                  onClick={signOutCloud}
+                  onClick={() => void signOutCloud()}
                   type="button"
                 >
-                  Clear Cloud Session
+                  Sign out
                 </button>
               </div>
-              <ul className="bullet-list">
-                <li>
-                  List overview cards now hide place rows until you open a
-                  dedicated list page.
-                </li>
-                <li>
-                  List metadata can show description and creator when the
-                  snapshot includes it.
-                </li>
-                <li>
-                  The PWA is read-only for snapshots; create or refresh them
-                  from the extension popup.
-                </li>
-              </ul>
             </article>
-
+            <article className="panel">
+              <h2>Delete account data</h2>
+              <p>
+                Remove your lists, notes, and connected assistants from Kakao
+                Lists. Your original Kakao Maps lists are not changed.
+              </p>
+              <button
+                type="button"
+                className="button secondary"
+                disabled={isBusy}
+                onClick={() => void deleteAccount()}
+              >
+                Delete my Kakao Lists data
+              </button>
+            </article>
             {cloudSync ? (
               <AgentAccessPanel
                 client={cloudSync}
@@ -898,13 +1116,21 @@ export default function App() {
                             <input
                               maxLength={500}
                               type="text"
-                              value={localNoteDrafts[item.id] ?? ""}
-                              onChange={(event) =>
+                              value={
+                                localNoteDrafts[
+                                  noteKey(selectedList.id, item.id)
+                                ] ?? ""
+                              }
+                              onChange={(event) => {
+                                const key = noteKey(selectedList.id, item.id);
+                                const value = event.target.value;
+                                dirtyDrafts.current.add(key);
+                                draftValues.current[key] = value;
                                 setLocalNoteDrafts((current) => ({
                                   ...current,
-                                  [item.id]: event.target.value,
-                                }))
-                              }
+                                  [key]: value,
+                                }));
+                              }}
                               placeholder="Add your own note"
                             />
                           </label>
@@ -947,8 +1173,8 @@ export default function App() {
             <div className="empty-state">
               <p>No lists stored yet.</p>
               <p>
-                The next authenticated load will sync the latest Kakao snapshot
-                into local storage.
+                Import your lists with the Kakao Lists extension, then refresh
+                this page.
               </p>
             </div>
           ) : filteredLists.length === 0 ? (
@@ -1018,32 +1244,7 @@ export default function App() {
 }
 
 function readRoute(): AppRoute {
-  const hash = window.location.hash.replace(/^#/, "");
-  const [route, query = ""] = hash.split("?");
-
-  if (route === "settings") {
-    return {
-      view: "settings",
-      listId: null,
-      itemId: null,
-    };
-  }
-
-  if (route.startsWith("list/")) {
-    const params = new URLSearchParams(query);
-    const itemId = params.get("item");
-    return {
-      view: "list",
-      listId: decodeURIComponent(route.slice("list/".length)),
-      itemId: itemId ? decodeURIComponent(itemId) : null,
-    };
-  }
-
-  return {
-    view: "overview",
-    listId: null,
-    itemId: null,
-  };
+  return parseRoute(window.location.hash);
 }
 
 function buildListHash(listId: string, itemId?: string) {
@@ -1105,25 +1306,39 @@ function getUserLocale() {
 }
 
 function getOrCreateDeviceId() {
-  const existing = window.localStorage.getItem("kakao-lists:device-id");
+  let existing: string | null = null;
+  try {
+    existing = browserStorage().getItem("kakao-lists:device-id");
+  } catch {
+    /* Use ephemeral id. */
+  }
   if (existing) {
     return existing;
   }
 
   const next = `device-${Math.random().toString(36).slice(2, 10)}`;
-  window.localStorage.setItem("kakao-lists:device-id", next);
+  try {
+    browserStorage().setItem("kakao-lists:device-id", next);
+  } catch {
+    /* Use ephemeral id. */
+  }
   return next;
 }
 
 function readCloudSession(): CloudSession | null {
-  const raw = window.localStorage.getItem("kakao-lists:cloud-session");
+  let raw: string | null = null;
+  try {
+    raw = browserStorage().getItem("kakao-lists:cloud-session");
+  } catch {
+    return null;
+  }
   if (!raw) {
     return null;
   }
 
   try {
     const parsed = JSON.parse(raw) as CloudSession;
-    if (!parsed?.token || !parsed?.expiresAt || !parsed?.user?.id) {
+    if (!isCloudSession(parsed)) {
       clearCloudSession();
       return null;
     }
@@ -1141,14 +1356,18 @@ function readCloudSession(): CloudSession | null {
 }
 
 function writeCloudSession(session: CloudSession) {
-  window.localStorage.setItem(
+  browserStorage().setItem(
     "kakao-lists:cloud-session",
     JSON.stringify(session),
   );
 }
 
 function clearCloudSession() {
-  window.localStorage.removeItem("kakao-lists:cloud-session");
+  try {
+    browserStorage().removeItem("kakao-lists:cloud-session");
+  } catch {
+    /* Already unavailable. */
+  }
 }
 
 function ArrowLeftIcon() {
