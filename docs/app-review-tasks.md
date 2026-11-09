@@ -196,6 +196,82 @@ For every dependency change, use releases published at least 14 days ago and pre
 
   **Scope:** PWA/extension copy, README, and supporting documentation.
 
+## Product backlog
+
+Feature and maintenance work collected outside the app review (formerly `TODO.md`). Same format and priorities as above. Order matters for TASK-24 to TASK-26: links and the map build on place storage.
+
+- [ ] **TASK-24: Store lists and places as their own records**
+
+  **Description:** Replace the per-user snapshot with lists, places and list memberships, and turn each Kakao import into a sync run. Places removed from Kakao are kept with their notes, marked, in the lists they came from. Kakao notes stay per list; the local note and links are one per place and user. Plan: [place-storage.md](place-storage.md).
+
+  **Acceptance criteria:** Existing snapshots migrate without losing any local note; an incomplete import removes nothing; removed places keep their notes and are restored when they come back; old extension versions keep working during the dual-write release; the extension, web app and MCP tools use the new endpoints.
+
+  **Scope:** Server storage and API, sync client, extension import, web app, MCP tools. P2.
+
+- [ ] **TASK-25: Add links to places**
+
+  **Description:** A Links section on every place (URL and optional title, up to 10 per place, in the order added), separate from the Kakao and local notes. Plan: [place-links.md](place-links.md). Depends on TASK-24.
+
+  **Acceptance criteria:** Links can be added and removed on places in the user's own lists, are read-only on places only in shared lists, survive imports, and reject non-http(s) URLs, duplicates and an 11th link; MCP tools return them.
+
+  **Scope:** Server, sync client, extension popup, web app, MCP tools, map app. P3.
+
+- [ ] **TASK-26: Map view app**
+
+  **Description:** A separate PWA that shows saved places on a map with a list picker (My lists and Shared with me), place cards with Kakao app and web links, and note editing on the user's own lists. Kakao Maps by default, with an automatic Leaflet + OpenStreetMap fallback. Plan: [map-view.md](map-view.md). Depends on TASK-24.
+
+  **Acceptance criteria:** Selected lists show as coloured, clustered markers; the place card opens Kakao in the app or on the web; notes are editable on own lists only (Kakao notes through the extension, read-only without it); the app falls back to Leaflet when Kakao is unavailable or over quota.
+
+  **Scope:** New `apps/map`, extension messaging, Kakao Developers setup. P3.
+
+- [ ] **TASK-27: Fix the Vercel crash on `/`**
+
+  **Description:** Requests to `/` on the API deployment fail with `Invalid export found in module "/var/task/apps/server/src/app.js". The default export must be a function or server.` Find why Vercel loads `src/app.js` as a function instead of the `api/index.ts` entry, and fix the build or routing.
+
+  **Acceptance criteria:** `/` on the deployed API returns a normal response instead of crashing the function; the cause is understood and documented; the API routes are unaffected.
+
+  **Scope:** Server build and Vercel configuration. P2.
+
+- [ ] **TASK-28: Tell development and released extension builds apart**
+
+  **Description:** Give local development builds a different extension name (for example a "Dev" suffix), so they can be told apart from the released version when both are installed.
+
+  **Acceptance criteria:** A development build shows a distinct name in the browser's extension list and toolbar; release builds keep the normal name.
+
+  **Scope:** Extension build configuration. P3.
+
+- [ ] **TASK-29: Offer both connection methods for AI assistants**
+
+  **Description:** In Settings → AI Assistants, show signing in with Kakao (connector) and the connection key side by side, so the user can choose, instead of the key being hidden behind "My assistant needs a key instead".
+
+  **Acceptance criteria:** Both options are visible from "Connect an assistant" with a one-line explanation of when to use each; sign-in is still only offered when the server supports it.
+
+  **Scope:** Web app AI Assistants panel. P3.
+
+- [ ] **TASK-30: Name Kakao colours and filter by them**
+
+  **Description:** In Settings, let the user give each Kakao colour a name (for example pink = dessert). Use the names in place filters, and give them to AI assistants as context.
+
+  **Acceptance criteria:** Colour names are saved per user and shown wherever colours appear; places can be filtered by colour name; MCP results include the colour name.
+
+  **Scope:** Server, web app, MCP tools. P3.
+
+- [ ] **TASK-31: Separate my lists and shared lists on the main page**
+
+  **Description:** Split the main page into two sections, My lists and Shared lists (lists owned by others). Uses the shared flag captured in TASK-24.
+
+  **Acceptance criteria:** Lists appear in the right section; empty sections are hidden or say so; search still covers both.
+
+  **Scope:** Web app overview. P3.
+
+- [ ] **TASK-32: Export a list to Google Maps**
+
+  **Description:** A button on a list that exports it for Google Maps, for example as a KML or CSV file that can be imported into Google My Maps, since Google Maps has no API to create saved lists directly.
+
+  **Acceptance criteria:** The exported file imports into Google My Maps with every place that has a location, names and notes included; places without a location are reported.
+
+  **Scope:** Web app; needs coordinates from TASK-24. P3.
+
 ## Remaining verification and policy constraints
 
 - **TASK-06:** Manual confirmation is implemented for every import/note edit. The misleading "skip owner validation" control has been removed, and in-flight actions stop after an extension account switch. A trustworthy automatic identity mapping and live mismatch verification remain unresolved.
