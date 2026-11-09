@@ -12,9 +12,21 @@ Status: **planned**, not started.
 
 ## Address
 
-`https://nyt87.github.io/kakao-list/` (a project page). A custom domain can be added later without changing the site; it would need a `CNAME` and DNS setup.
+`https://nyt87.github.io/kakao-list/` (a project page), for now. A custom domain can be added later without changing the site; it would need a `CNAME` and DNS setup.
+
+## Languages
+
+**Korean and English.** Most users are likely Korean speakers, so Korean is the default:
+
+- Korean pages at the root (`/kakao-list/`, `/kakao-list/get-started/`, …), English under `/kakao-list/en/` with the same page names.
+- A language switch (한국어 / English) on every page links to the same page in the other language.
+- No automatic redirect by browser language, so links always show what they say. Each page sets `lang` and lists its other-language version with `hreflang`, so search engines offer the right one.
+- Both languages always have the same pages. A build check fails if a page exists in only one of them.
+- The Korean privacy page is the one registered in Kakao Developers.
 
 ## Pages
+
+Every page below exists in both languages.
 
 | Page | Content |
 |---|---|
@@ -45,12 +57,12 @@ Same design context as the apps (`AGENTS.md`): simple, calm, familiar to Kakao M
 
 ## Work breakdown
 
-1. Scaffold `apps/homepage` (Vite multi-page, base path, shared tokens), with Home and the footer.
-2. Get started, AI assistants and Privacy pages, with screenshots taken in light and dark mode.
-3. The Pages workflow, the CI build and link check, and the one-time Pages setting.
+1. Scaffold `apps/homepage` (Vite multi-page, base path, shared tokens, Korean root and `/en/`, language switch), with Home and the footer.
+2. Get started, AI assistants and Privacy pages in Korean and English, with screenshots taken in light and dark mode.
+3. The Pages workflow, the CI build with the link check and the same-pages-in-both-languages check, and the one-time Pages setting.
 4. Add the homepage URL to the repository's About section and the README, and as the privacy policy URL in Kakao Developers.
 
-## Open questions
+## Decided
 
-- Languages: English only, or Korean and English? Most users are likely Korean speakers.
-- Custom domain now, or the `github.io` address for a start?
+- **Korean and English**, Korean as the default (see "Languages").
+- **The `github.io` address for now**; a custom domain can come later.
