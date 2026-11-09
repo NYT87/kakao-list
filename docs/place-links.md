@@ -2,7 +2,7 @@
 
 A **Links** section on every saved place, next to the Kakao note and the local note: a short list of web links the user adds to a place (a blog review, the menu, a reservation page, an Instagram post) without editing either note.
 
-Status: **planned**, not started.
+Status: **planned**, not started. **Depends on `docs/place-storage.md`**, which stores places as their own records; links are a column of a place there.
 
 ## What the user sees
 
@@ -12,11 +12,12 @@ Everywhere a place's notes are shown (the web app's list page, the extension pop
 - **Add link**: a URL field plus an optional title. A link without a title shows its site; the server never fetches the page to look one up. Up to **10 links per place**; at 10, the add form is replaced by "10 of 10 links".
 - **Remove** on each link, with a short undo instead of a confirmation dialog, because a link is cheap to re-add.
 - Links are shown **in the order they were added**; there is no reordering.
-- Links on shared lists are read-only, the same rule as notes (see `docs/map-view.md`). On the user's own lists they can always be edited, whatever happens with the notes.
+- Links belong to the **place, one list per user**, like the local note. A place in several lists shows the same links in each.
+- They can be edited when the place is in at least one of the user's own lists, and are read-only for places that are only in shared lists (the rule from `docs/map-view.md`). Places removed from Kakao keep their links, which stay editable.
 
 ## Data
 
-Links are the user's own data, like the local note. They are stored on the sync server inside the snapshot, never on Kakao.
+Links are the user's own data, like the local note: stored on the sync server, on the place record from `docs/place-storage.md`, never on Kakao.
 
 ```ts
 interface PlaceLink {
@@ -26,34 +27,33 @@ interface PlaceLink {
   addedAt: string;   // ISO time
 }
 
-interface FavoriteListItem {
-  // ...existing fields
-  links?: PlaceLink[];
+interface Place {
+  // ...fields from docs/place-storage.md
+  links: PlaceLink[];
 }
 ```
 
-Validation, both in `parseSnapshot` (`@kakao-lists/domain`) and on the server:
+Validation, in `@kakao-lists/domain` and again on the server:
 
 - At most **10 links per place**.
 - `url`: absolute `http:` or `https:` only, at most 1,024 characters, no credentials (`user:pass@`). Anything else (`javascript:`, `data:`, relative paths) is rejected.
 - `title`: optional, trimmed, at most 100 characters, no control characters.
 - Duplicate URLs on the same place are rejected.
-- **At most 2,000 links per account in total.** 10 links on each of up to 20,000 places would make snapshots far larger than the server's body limit, which also holds notes and places. 2,000 links of up to about 1 KB stay well within it. The limit is shown with a clear message when reached.
+
+With places stored as their own rows, there is no account-wide cap: the earlier 2,000-link limit only existed because everything shared one snapshot document.
 
 ## Saving
 
-- **New endpoint** `PUT /api/snapshot/item-links` with `{ listId, itemId, links }`. It replaces the whole list for one place.
-  - Same session auth, rate limit and ownership rule as `PATCH /api/snapshot/item-note`; rejected on shared lists.
+- `PUT /api/places/:id/links` with `{ links }`, from `docs/place-storage.md`. It replaces the whole list for one place.
+  - Same session auth, rate limit and ownership rule as the local note; rejected for places that are only in shared lists.
   - Replacing the whole list keeps it simple: one request per change, safe to retry, and the server validates the final state in one place.
-  - Concurrent edits from two devices are last-write-wins, like notes today (see `docs/architecture-decisions.md`).
-- `@kakao-lists/sync` gets `updatePlaceLinks(input)`. The web app, the extension and the map app all use it.
-- The server checks the per-place and per-account limits and returns `400` with a readable message.
+  - It writes one row, so it doesn't conflict with an import running at the same time. Two devices editing the same place's links at once is last-write-wins.
+- `@kakao-lists/sync` gets `updatePlaceLinks(placeId, links)`. The web app, the extension and the map app all use it.
+- The server checks the limits and returns `400` with a readable message.
 
-## Keeping links across re-imports
+## Imports
 
-A re-import from Kakao rebuilds every list from Kakao's data, which knows nothing about links. The extension already carries local notes over from the previous snapshot, matched by list id and place id (`PopupApp.tsx`, import). **Links must be carried over the same way**, in the same step, or every re-import would delete them.
-
-That carry-over covers both notes and links, and a test covers it. A place moved to another list on Kakao loses its local note and links, as notes do today; that limitation is documented, not fixed here.
+Imports never touch links. A sync run updates lists, places and memberships from Kakao, but the local note and links are ours and are left as they are. A place that is moved between lists, or removed from Kakao, keeps its links. No carry-over code is needed.
 
 ## AI assistants
 
@@ -61,13 +61,15 @@ The read-only MCP tools (`get_list`, `search_places`, `get_place`) return each p
 
 ## Work breakdown
 
+Starts after `docs/place-storage.md` is done.
+
 1. **Domain and server**:
-   - the `PlaceLink` type and validation in `parseSnapshot`;
-   - `PUT /api/snapshot/item-links` with the limits, ownership rule and rate limit;
-   - tests, including limits, bad URLs, shared lists and concurrent edits.
+   - the `PlaceLink` type and validation;
+   - the `links` column on places and `PUT /api/places/:id/links`, with the limits, ownership rule and rate limit;
+   - tests: limits, bad URLs, shared-only places, removed places, and an import leaving links untouched.
 2. **Sync client**: `updatePlaceLinks`.
-3. **Extension**: carry links over on re-import (with a test), plus a Links section in the popup's place view.
-4. **Web app**: the Links section on the list page, with the same patterns as the notes (saving state, errors that keep the typed text, light and dark, phone width).
+3. **Extension**: a Links section in the popup's place view.
+4. **Web app**: the Links section on the place view, with the same patterns as the notes (saving state, errors that keep the typed text, light and dark, phone width).
 5. **MCP tools**: include links in place results and search.
 6. **Map app**: the Links section on the place card (`docs/map-view.md`, place card).
 7. **Docs**: README and this doc updated.

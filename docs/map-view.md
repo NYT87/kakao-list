@@ -2,7 +2,7 @@
 
 A separate PWA that shows the user's saved places on a map, like Kakao Map or Google Maps, with a list picker to show or hide each saved list.
 
-Status: **planned**, not started.
+Status: **planned**, not started. **Depends on `docs/place-storage.md`**: the map reads places from the new place records, and the data it needs (coordinates, the shared flag) are columns there.
 
 ## Goals
 
@@ -21,13 +21,13 @@ Status: **planned**, not started.
 
 ## Data needed first
 
-The importer drops two things the map needs. Both come from Kakao responses it already reads, so step 1 adds them, and users re-import once from the extension:
+The importer drops two things the map needs. Both come from Kakao responses it already reads. They are captured as part of `docs/place-storage.md` (columns on `places` and `lists`), and users re-import once from the extension:
 
-- **Coordinates.** `GET /favorite/mine/list` returns `x` and `y` for every favourite (see `docs/kakao-maps-private-api.md`), but `FavoriteListItem` has no location.
+- **Coordinates.** `GET /favorite/mine/list` returns `x` and `y` for every favourite (see `docs/kakao-maps-private-api.md`), but the importer doesn't keep it yet.
   - They look like Kakao's web-map coordinates (WCONGNAMUL), not latitude/longitude. **To confirm with a real import.**
-  - The raw values are stored as `kakaoX`/`kakaoY`, so the snapshot stays faithful to Kakao.
+  - The raw values are stored as `kakaoX`/`kakaoY` on the place, faithful to Kakao.
   - A shared helper in `@kakao-lists/domain` converts them to latitude/longitude, so both map providers use the same positions. It is checked against the Kakao SDK's own conversion (`new kakao.maps.Coords(x, y).toLatLng()`) on real places.
-- **Whether a list is shared.** `GET /folder/list` marks lists the user subscribes to with a `subscribe` field. The importer keeps it as `shared: true` on `FavoriteList`. The existing `ownerId` cannot tell this on its own, because Kakao's Maps profile id cannot be compared with the Kakao Login id.
+- **Whether a list is shared.** `GET /folder/list` marks lists the user subscribes to with a `subscribe` field. The importer keeps it as `shared` on the list. The existing `ownerId` cannot tell this on its own, because Kakao's Maps profile id cannot be compared with the Kakao Login id.
 
 Until the user re-imports: places without coordinates are counted, with a "re-import from the extension" hint, and lists without the `shared` flag are shown but not editable, with the same hint. This is the safe default.
 
@@ -43,7 +43,7 @@ Until the user re-imports: places without coordinates are counted, with a "re-im
 ## App shape
 
 - **New app `apps/map`**: Vite + React PWA, like `apps/pwa`, deployed as its own Vercel project.
-- It signs in with Kakao the same way as the web app, pulls the latest snapshot from the sync server (`GET /api/snapshot`), and keeps a local copy for offline viewing.
+- It signs in with Kakao the same way as the web app, reads lists and places from the sync server (`GET /api/lists`, `GET /api/lists/:id/places` from `docs/place-storage.md`), and keeps a local copy for offline viewing.
 - It never imports lists; importing stays in the extension. It edits notes on the user's own lists (see "Editing notes").
 - Reuses `@kakao-lists/domain`, `@kakao-lists/kakao` and `@kakao-lists/sync`.
 
@@ -56,7 +56,7 @@ Until the user re-imports: places without coordinates are counted, with a "re-im
 - **Markers** coloured by the Kakao colour of each place, as in the web app. Nearby markers cluster when zoomed out, so large lists stay readable.
 - **Place card** on tap: name, address (`subtitle`), the list it belongs to (marked "Shared" when it is), links to Kakao, both notes, and the place's saved links (see `docs/place-links.md`). Notes and links are editable on own lists and read-only on shared ones.
 - **"Fit to selection"** and an optional **"My location"** button (asks for permission only when tapped).
-- **Empty and partial states**: no snapshot yet (import with the extension), no list selected, places without a location (re-import), lists without ownership info (re-import to edit).
+- **Empty and partial states**: nothing imported yet (import with the extension), no list selected, places without a location (re-import), lists without ownership info (re-import to edit).
 - **Accessibility**: the list picker and place card are fully keyboard- and screen-reader-usable. A plain list of the visible places is available alongside the map, because markers alone are not accessible.
 
 ## Place card: Kakao links
@@ -75,14 +75,14 @@ Each place has two notes, and they are saved in different places:
 
 | Note | Saved to | How the map app saves it |
 |---|---|---|
-| **Local note** (the user's own) | the sync server | Directly, with the existing `PATCH /api/snapshot/item-note` (`updateLocalNote` in `@kakao-lists/sync`), the same call the web app uses. Works everywhere. The server rejects notes on shared lists. |
+| **Local note** (the user's own) | the sync server | Directly, with `PATCH /api/places/:id` from `docs/place-storage.md`, the same call the web app uses. It is one note per place, shared by all its lists. Works everywhere. The server rejects it for places only in shared lists. |
 | **Kakao note** (`memo`, shown in Kakao Map too) | Kakao | Only through the extension. Kakao accepts note edits only from a signed-in Kakao Maps browser session, which neither the map app nor the server has (see `docs/kakao-maps-private-api.md`). |
 
 Kakao note editing, by situation:
 
 - **Desktop browser with the extension installed:** the map app sends the edit to the extension with `chrome.runtime.sendMessage(<extension id>, …)`. The extension saves it with its existing verified flow (`updateKakaoFavoriteNote`: write in a `map.kakao.com` tab, re-read to confirm), syncs the changed list to the server, and replies with the result. The map app then updates the card and its local copy.
   - The extension must list the map app's origin under `externally_connectable` in its manifest, and accept only that origin.
-  - It must also check that the message is well-formed, that the place exists in one of the user's own lists in its snapshot, and that its signed-in Kakao user is the same as the map app's. That way a web page can never make it edit shared lists or someone else's notes.
+  - It must also check that the message is well-formed, that the place exists in that one of the user's own lists, and that its signed-in Kakao user is the same as the map app's. That way a web page can never make it edit shared lists or someone else's notes.
   - If Kakao Maps isn't signed in in that browser, the reply says so and the card tells the user to sign in to Kakao Maps.
 - **Phones, or without the extension:** the Kakao note is shown read-only, with "Edit in Kakao Map" (the app or web link above). The next import brings the change back.
 - The map app detects the extension by sending it a version ping; no reply means the read-only path.
@@ -91,12 +91,10 @@ Saving shows progress and an error the user can act on, and never loses the type
 
 ## Work breakdown
 
-1. **Data** (`packages/domain`, `apps/extension`, `apps/server`):
-   - add `kakaoX`/`kakaoY` to `FavoriteListItem` and `shared` to `FavoriteList`, and keep `x`/`y` and `subscribe` on import;
-   - add the coordinate conversion helper and confirm the coordinate system with a real import;
-   - have the server reject local-note edits on shared lists;
-   - test that the new fields survive sync. Snapshots are stored as JSON, so storage needs no change.
-2. **App scaffold** (`apps/map`): Vite PWA, manifest and icons, Kakao sign-in and session, snapshot loading and local cache, workspace and CI wiring.
+Starts after `docs/place-storage.md` is done; coordinates, the shared flag and the place-level local note come from there.
+
+1. **Coordinates**: the conversion helper in `@kakao-lists/domain`, checked against a real import and the Kakao SDK's own conversion.
+2. **App scaffold** (`apps/map`): Vite PWA, manifest and icons, Kakao sign-in and session, loading lists and places with a local cache, workspace and CI wiring.
 3. **Map and list picker**:
    - the map interface with Kakao and Leaflet implementations, plus the automatic fallback;
    - markers from the selected lists;
