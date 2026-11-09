@@ -54,7 +54,7 @@ Until the user re-imports: places without coordinates are counted, with a "re-im
   - Two sections, **My lists** and **Shared with me**. Each list has a toggle, its colour and its place count, and shared lists show the owner's name.
   - "Show all" and "Hide all", per section and overall. The selection is remembered on the device.
 - **Markers** coloured by the Kakao colour of each place, as in the web app. Nearby markers cluster when zoomed out, so large lists stay readable.
-- **Place card** on tap: name, address (`subtitle`), the list it belongs to (marked "Shared" when it is), links to Kakao, and both notes. The notes are editable on own lists and read-only on shared ones.
+- **Place card** on tap: name, address (`subtitle`), the list it belongs to (marked "Shared" when it is), links to Kakao, both notes, and the place's saved links (see `docs/place-links.md`). Notes and links are editable on own lists and read-only on shared ones.
 - **"Fit to selection"** and an optional **"My location"** button (asks for permission only when tapped).
 - **Empty and partial states**: no snapshot yet (import with the extension), no list selected, places without a location (re-import), lists without ownership info (re-import to edit).
 - **Accessibility**: the list picker and place card are fully keyboard- and screen-reader-usable. A plain list of the visible places is available alongside the map, because markers alone are not accessible.
@@ -105,7 +105,8 @@ Saving shows progress and an error the user can act on, and never loses the type
    - Kakao app and web links;
    - local note editing through the sync server;
    - Kakao note editing through the extension (`externally_connectable`, message validation, the own-list and same-user checks, a ping to detect the extension, and the read-only fallback);
-   - read-only notes on shared lists.
+   - the Links section (`docs/place-links.md`);
+   - read-only notes and links on shared lists.
 5. **Polish**: clustering, empty and partial states, the accessible place list, light and dark UI chrome, phone and desktop layouts.
 6. **Ship**: Vercel project; the domain registered for Kakao Login (redirect URI) and for the JavaScript key (JavaScript SDK domain); Kakao Maps turned on; README and this doc updated.
 
