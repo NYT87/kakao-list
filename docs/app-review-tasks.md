@@ -198,7 +198,7 @@ For every dependency change, use releases published at least 14 days ago and pre
 
 ## Product backlog
 
-Feature and maintenance work collected outside the app review (formerly `TODO.md`). Same format and priorities as above. Order matters for TASK-24 to TASK-26: links and the map build on place storage.
+Feature and maintenance work collected outside the app review (formerly `TODO.md`, plus later additions). Same format and priorities as above. Order matters for TASK-24 to TASK-26: links and the map build on place storage.
 
 - [ ] **TASK-24: Store lists and places as their own records**
 
@@ -271,6 +271,14 @@ Feature and maintenance work collected outside the app review (formerly `TODO.md
   **Acceptance criteria:** The exported file imports into Google My Maps with every place that has a location, names and notes included; places without a location are reported.
 
   **Scope:** Web app; needs coordinates from TASK-24. P3.
+
+- [ ] **TASK-33: Project homepage on GitHub Pages**
+
+  **Description:** A public homepage at `https://nyt87.github.io/kakao-list/` that ties the Vercel apps and the extension together for new users: what the project is, how to get started, how to connect an AI assistant, and a privacy page usable as the privacy policy URL in Kakao Developers. Plan: [project-homepage.md](project-homepage.md).
+
+  **Acceptance criteria:** Home, Get started, AI assistants and Privacy pages are published from `main` by a pinned GitHub Actions workflow; the extension link always downloads the latest release; pages work in light and dark mode and at phone width, without tracking or cookies; CI builds the site and checks its links.
+
+  **Scope:** New `apps/homepage`, a Pages workflow, CI, README and repository settings. P3.
 
 ## Remaining verification and policy constraints
 
