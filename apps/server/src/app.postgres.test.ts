@@ -26,6 +26,7 @@ type ApiResponse = Omit<Response, "json"> & {
 const databaseUrl = process.env.TEST_DATABASE_URL;
 const secret = `test-only-secret-${"a".repeat(64)}`;
 const at = "2026-10-25T00:00:00.000Z";
+const magomapSecret = "m".repeat(48);
 const list = (id = "list-1") => ({
   id,
   name: id,
@@ -62,6 +63,7 @@ describe("main API with real PostgreSQL", { skip: !databaseUrl }, () => {
         SYNC_SERVER_SIGNING_SECRET: secret,
         ALLOW_MOCK_AUTH: "true",
         KAKAO_REST_API_KEY: "fixture-client",
+        MAGOMAP_IMPORT_SECRET: magomapSecret,
       },
       kakaoAuthUrl: process.env.KAKAO_SIMULATION_URL,
       kakaoApiUrl: process.env.KAKAO_SIMULATION_URL,
@@ -182,6 +184,144 @@ describe("main API with real PostgreSQL", { skip: !databaseUrl }, () => {
       (await r.json()).snapshot.lists[0].items[0].localNote,
       undefined,
     );
+  });
+  it("stores a whole-snapshot import as complete, and keeps that through note edits", async () => {
+    const a = await login("complete");
+    assert.equal((await seed(a.token)).snapshot.complete, true);
+    const r = await call("/api/snapshot/item-note", a.token, "PATCH", {
+      listId: "list-1",
+      itemId: "one",
+      localNote: "Note",
+    });
+    assert.equal((await r.json()).snapshot.complete, true);
+    const empty = await call("/api/snapshot", a.token, "PUT", {
+      deviceId: "test",
+      snapshot: { syncedAt: at, source: "test-import", lists: [] },
+    });
+    assert.equal(empty.status, 200);
+    assert.equal((await empty.json()).snapshot.complete, false);
+  });
+  describe("magomap integration", () => {
+    const magomap = (path: string, secret: string | null = magomapSecret) =>
+      fetch(`${base}/api/integrations/magomap${path}`, {
+        headers: secret === null ? {} : { authorization: `Bearer ${secret}` },
+      });
+    /** Runs another app on the same database with its own environment. */
+    async function otherApp(env: Record<string, string>, path: string) {
+      const other = createApplication({
+        pool,
+        env: { SYNC_SERVER_SIGNING_SECRET: secret, ...env },
+      });
+      const running = await new Promise<Server>((resolve) => {
+        const s = other.app.listen(0, "127.0.0.1", () => resolve(s));
+      });
+      try {
+        const port = (running.address() as AddressInfo).port;
+        return await fetch(`http://127.0.0.1:${port}${path}`, {
+          headers: { authorization: `Bearer ${"m".repeat(48)}` },
+        });
+      } finally {
+        await new Promise<void>((resolve) => running.close(() => resolve()));
+      }
+    }
+
+    it("refuses a missing or wrong secret", async () => {
+      assert.equal((await magomap("/lists?kakaoUserId=x", null)).status, 401);
+      assert.equal(
+        (await magomap("/lists?kakaoUserId=x", "wrong")).status,
+        401,
+      );
+    });
+
+    it("says no_snapshot, exactly, for an account without saved lists", async () => {
+      for (const path of [
+        "/lists?kakaoUserId=nobody",
+        "/lists/1/items?kakaoUserId=nobody",
+      ]) {
+        const r = await magomap(path);
+        assert.equal(r.status, 404);
+        assert.equal(await r.text(), '{"error":"no_snapshot"}');
+      }
+    });
+
+    it("needs the Kakao user id and a sensible page", async () => {
+      assert.equal((await magomap("/lists")).status, 400);
+      const a = await login("magomap-pages");
+      await call("/api/snapshot", a.token, "PUT", {
+        deviceId: "test",
+        snapshot: snapshot("kakao-folder-7"),
+      });
+      const q = `kakaoUserId=${a.user.id}`;
+      for (const bad of ["offset=-1", "limit=501", "limit=0", "offset=a"]) {
+        assert.equal(
+          (await magomap(`/lists/7/items?${q}&${bad}`)).status,
+          400,
+          bad,
+        );
+      }
+      assert.equal((await magomap(`/lists/abc/items?${q}`)).status, 400);
+    });
+
+    it("serves a complete import's lists and pages from one snapshot", async () => {
+      const a = await login("magomap-import");
+      await call("/api/snapshot", a.token, "PUT", {
+        deviceId: "test",
+        snapshot: snapshot("kakao-folder-7"),
+      });
+      const lists = await magomap(`/lists?kakaoUserId=${a.user.id}`);
+      assert.equal(lists.status, 200);
+      const body = (await lists.json()) as {
+        complete: boolean;
+        importedAt: string;
+        lists: { kakaoFolderId: number; itemCount: number }[];
+      };
+      assert.equal(body.complete, true);
+      assert.deepEqual(
+        body.lists.map((l) => [l.kakaoFolderId, l.itemCount]),
+        [[7, 2]],
+      );
+      const items = await magomap(
+        `/lists/7/items?kakaoUserId=${a.user.id}&offset=1&limit=1`,
+      );
+      assert.equal(items.status, 200);
+      const page = (await items.json()) as {
+        importedAt: string;
+        total: number;
+        items: { favoriteSeq: string; position: number }[];
+      };
+      assert.equal(page.importedAt, body.importedAt);
+      assert.equal(page.total, 2);
+      assert.deepEqual(
+        page.items.map((i) => [i.favoriteSeq, i.position]),
+        [["two", 1]],
+      );
+      const missing = await magomap(`/lists/8/items?kakaoUserId=${a.user.id}`);
+      assert.equal(missing.status, 404);
+      assert.equal(await missing.text(), '{"error":"no_snapshot"}');
+    });
+
+    it("is absent without a secret, or with one too short to trust", async () => {
+      const path = "/api/integrations/magomap/lists?kakaoUserId=nobody";
+      const none = await otherApp({}, path);
+      assert.equal(none.status, 404);
+      assert.ok(!(await none.text()).includes("no_snapshot"));
+      const warnings: unknown[] = [];
+      const warn = console.warn;
+      console.warn = (...args: unknown[]) => warnings.push(args.join(" "));
+      try {
+        const short = await otherApp(
+          { MAGOMAP_IMPORT_SECRET: "m".repeat(10) },
+          path,
+        );
+        assert.equal(short.status, 404);
+        assert.ok(!(await short.text()).includes("no_snapshot"));
+      } finally {
+        console.warn = warn;
+      }
+      assert.ok(
+        warnings.some((w) => String(w).includes("MAGOMAP_IMPORT_SECRET")),
+      );
+    });
   });
   it("keeps unrelated concurrent note changes", async () => {
     const a = await login("concurrent-notes");

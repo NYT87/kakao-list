@@ -49,6 +49,74 @@ describe("snapshot boundary", () => {
     ];
     for (const value of bad) assert.throws(() => parseSnapshot(value));
   });
+  it("keeps raw Kakao coordinates, favourite type, subscribed and completeness", () => {
+    const parsed = parseSnapshot({
+      ...snapshot,
+      complete: true,
+      lists: [
+        {
+          ...snapshot.lists[0],
+          subscribed: true,
+          items: [
+            {
+              id: "p",
+              title: "Place",
+              kakaoX: 497278,
+              kakaoY: 1128228,
+              kakaoType: "PLACE",
+            },
+          ],
+        },
+      ],
+    });
+    assert.equal(parsed.complete, true);
+    assert.equal(parsed.lists[0].subscribed, true);
+    assert.deepEqual(
+      [
+        parsed.lists[0].items[0].kakaoX,
+        parsed.lists[0].items[0].kakaoY,
+        parsed.lists[0].items[0].kakaoType,
+      ],
+      [497278, 1128228, "PLACE"],
+    );
+  });
+  it("drops bad Kakao fields instead of refusing the snapshot", () => {
+    for (const bad of [
+      { kakaoX: -1, kakaoY: 3 },
+      { kakaoX: "a", kakaoY: 3 },
+      { kakaoX: 0, kakaoY: 0 },
+      { kakaoX: 5, kakaoY: Number.NaN },
+      { kakaoX: 5 },
+      { kakaoType: "x".repeat(41) },
+      { kakaoType: 7 },
+    ]) {
+      const parsed = parseSnapshot({
+        ...snapshot,
+        complete: "yes",
+        lists: [
+          {
+            ...snapshot.lists[0],
+            subscribed: "yes",
+            items: [{ id: "p", title: "Place", ...bad }],
+          },
+        ],
+      });
+      const item = parsed.lists[0].items[0];
+      assert.equal(item.id, "p");
+      assert.equal(item.kakaoX, undefined);
+      assert.equal(item.kakaoY, undefined);
+      assert.equal(item.kakaoType, undefined);
+      assert.equal(parsed.complete, undefined);
+      assert.equal(parsed.lists[0].subscribed, undefined);
+      assert.ok(!("kakaoX" in item) && !("complete" in parsed));
+    }
+  });
+  it("still reads a snapshot stored before these fields existed", () => {
+    const parsed = parseSnapshot(snapshot);
+    assert.equal(parsed.complete, undefined);
+    assert.equal(parsed.lists[0].subscribed, undefined);
+    assert.equal(parsed.lists[0].items[0].kakaoX, undefined);
+  });
   it("refreshes clean fields without resetting dirty drafts", () => {
     assert.deepEqual(
       reconcileDrafts(

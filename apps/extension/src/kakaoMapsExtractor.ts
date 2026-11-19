@@ -18,6 +18,8 @@ interface KakaoMapsFolderRecord {
   nickname?: string;
   kakao_map_user_id?: string;
   map_user_id?: string;
+  /** Present on folders this account follows (and possibly on public ones; see G2). */
+  subscribe?: unknown;
 }
 
 interface KakaoMapsFavoriteRecord {
@@ -300,7 +302,7 @@ async function findKakaoMapsTab(): Promise<chrome.tabs.Tab | null> {
   );
 }
 
-async function extractSnapshotInPageEnvelope(): Promise<PageExtractionEnvelope> {
+export async function extractSnapshotInPageEnvelope(): Promise<PageExtractionEnvelope> {
   try {
     const fetchJson = async <T>(path: string): Promise<T> => {
       const response = await fetch(
@@ -388,6 +390,10 @@ async function extractSnapshotInPageEnvelope(): Promise<PageExtractionEnvelope> 
         subtitle: favorite.display2?.trim() || undefined,
         kakaoNote: favorite.memo?.trim() || undefined,
         localNote: undefined,
+        // Raw values only: this runs inside the Kakao page and can't import the converter.
+        kakaoX: favorite.x,
+        kakaoY: favorite.y,
+        kakaoType: favorite.type,
       };
     };
 
@@ -454,6 +460,24 @@ async function extractSnapshotInPageEnvelope(): Promise<PageExtractionEnvelope> 
       }),
     );
 
+    // Kakao sets `subscribe` on followed folders and on public ones, her own included. A flagged
+    // folder is followed only when someone other than the owner of her unflagged folders made it.
+    const flagged = (value: unknown): boolean => {
+      if (value == null || value === false) return false;
+      const text = String(value).trim().toLowerCase();
+      return text !== "" && text !== "0" && text !== "n" && text !== "false";
+    };
+    const ownerOf = (folder: KakaoMapsFolderRecord): string | undefined =>
+      folder.kakao_map_user_id?.trim() ||
+      (folder.map_user_id ? String(folder.map_user_id).trim() : undefined) ||
+      undefined;
+    const ownFolderOwners = new Set(
+      folders
+        .filter((folder) => !flagged(folder.subscribe))
+        .map(ownerOf)
+        .filter((owner): owner is string => Boolean(owner)),
+    );
+
     const lists: FavoriteList[] = folderFavorites.map(
       ({ folder, favorites }) => {
         const items = favorites.map((favorite, index) =>
@@ -476,6 +500,9 @@ async function extractSnapshotInPageEnvelope(): Promise<PageExtractionEnvelope> 
           updatedAt: resolveListUpdatedAt(folder, favorites, now),
           itemCount: items.length,
           items,
+          subscribed:
+            flagged(folder.subscribe) &&
+            !ownFolderOwners.has(ownerOf(folder) ?? ""),
         };
       },
     );
