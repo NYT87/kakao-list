@@ -68,6 +68,8 @@ export function mergeSnapshotList(input: {
     lists: input.expectedListIds
       ? next.filter((list) => input.expectedListIds?.includes(list.id))
       : next,
+    // Only the last chunk of an import names every list; until it arrives the import is partial.
+    complete: input.expectedListIds !== undefined,
   });
 }
 

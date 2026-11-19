@@ -10,6 +10,11 @@ export interface FavoriteListItem {
   subtitle?: string;
   kakaoNote?: string;
   localNote?: string;
+  /** Kakao map coordinates (WCONGNAMUL), kept raw; converted only when read. */
+  kakaoX?: number;
+  kakaoY?: number;
+  /** Kakao's favourite type (a place, an address, …). */
+  kakaoType?: string;
 }
 
 export interface FavoriteList {
@@ -24,12 +29,16 @@ export interface FavoriteList {
   updatedAt: string;
   itemCount: number;
   items: FavoriteListItem[];
+  /** The list belongs to someone else and this account follows it. */
+  subscribed?: boolean;
 }
 
 export interface SyncSnapshot {
   syncedAt: string;
   source: string;
   lists: FavoriteList[];
+  /** Every list of the account arrived in this import (absent on older snapshots). */
+  complete?: boolean;
 }
 
 export interface KakaoUserProfile {
@@ -263,6 +272,19 @@ export function parseSnapshot(value: unknown): SyncSnapshot {
     if (!Number.isFinite(Date.parse(result))) throw new Error("Invalid date.");
     return result;
   };
+  // Kakao's own fields are kept only when well-formed and dropped otherwise, never refused:
+  // stored snapshots are read through here, and one odd value must not lock an account.
+  const positive = (input: unknown): input is number =>
+    typeof input === "number" && Number.isFinite(input) && input > 0;
+  const shortText = (input: unknown, max: number): string | undefined =>
+    typeof input === "string" &&
+    input.trim() &&
+    input.length <= max &&
+    !Array.from(input).some((char) => char.charCodeAt(0) < 32)
+      ? input
+      : undefined;
+  const flag = (key: string, input: unknown) =>
+    typeof input === "boolean" ? { [key]: input } : {};
   const root = record(value);
   if (!Array.isArray(root.lists) || root.lists.length > SNAPSHOT_LIMITS.lists)
     throw new Error("Invalid lists collection.");
@@ -314,6 +336,12 @@ export function parseSnapshot(value: unknown): SyncSnapshot {
         subtitle: text(item.subtitle, 5000, true),
         kakaoNote: text(item.kakaoNote, 5000, true),
         localNote: text(item.localNote, SNAPSHOT_LIMITS.note, true),
+        ...(positive(item.kakaoX) && positive(item.kakaoY)
+          ? { kakaoX: item.kakaoX, kakaoY: item.kakaoY }
+          : {}),
+        ...(shortText(item.kakaoType, 40) !== undefined
+          ? { kakaoType: item.kakaoType as string }
+          : {}),
       };
     });
     if (!Number.isInteger(list.itemCount) || list.itemCount !== items.length)
@@ -328,12 +356,14 @@ export function parseSnapshot(value: unknown): SyncSnapshot {
       updatedAt: date(list.updatedAt),
       itemCount: items.length,
       items,
+      ...flag("subscribed", list.subscribed),
     };
   });
   return {
     syncedAt: date(root.syncedAt),
     source: text(root.source, 200) as string,
     lists,
+    ...flag("complete", root.complete),
   };
 }
 

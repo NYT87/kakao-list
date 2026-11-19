@@ -541,7 +541,11 @@ export function createApplication(options: {
         pool,
         session.user.id,
         body.deviceId,
-        (current) => preserveLocalNotes(current, validatedSnapshot),
+        // A whole-snapshot import carries every list (an empty one says nothing was read).
+        (current) => ({
+          ...preserveLocalNotes(current, validatedSnapshot),
+          complete: validatedSnapshot.lists.length > 0,
+        }),
         { sessionTokenHash: tokenHash(session.token) },
       );
 

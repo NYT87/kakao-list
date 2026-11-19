@@ -18,6 +18,8 @@ interface KakaoMapsFolderRecord {
   nickname?: string;
   kakao_map_user_id?: string;
   map_user_id?: string;
+  /** Present on folders this account follows (and possibly on public ones; see G2). */
+  subscribe?: unknown;
 }
 
 interface KakaoMapsFavoriteRecord {
@@ -300,7 +302,7 @@ async function findKakaoMapsTab(): Promise<chrome.tabs.Tab | null> {
   );
 }
 
-async function extractSnapshotInPageEnvelope(): Promise<PageExtractionEnvelope> {
+export async function extractSnapshotInPageEnvelope(): Promise<PageExtractionEnvelope> {
   try {
     const fetchJson = async <T>(path: string): Promise<T> => {
       const response = await fetch(
@@ -388,6 +390,10 @@ async function extractSnapshotInPageEnvelope(): Promise<PageExtractionEnvelope> 
         subtitle: favorite.display2?.trim() || undefined,
         kakaoNote: favorite.memo?.trim() || undefined,
         localNote: undefined,
+        // Raw values only: this runs inside the Kakao page and can't import the converter.
+        kakaoX: favorite.x,
+        kakaoY: favorite.y,
+        kakaoType: favorite.type,
       };
     };
 
@@ -476,6 +482,7 @@ async function extractSnapshotInPageEnvelope(): Promise<PageExtractionEnvelope> 
           updatedAt: resolveListUpdatedAt(folder, favorites, now),
           itemCount: items.length,
           items,
+          subscribed: folder.subscribe != null && folder.subscribe !== false,
         };
       },
     );

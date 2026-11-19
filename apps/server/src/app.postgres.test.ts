@@ -183,6 +183,22 @@ describe("main API with real PostgreSQL", { skip: !databaseUrl }, () => {
       undefined,
     );
   });
+  it("stores a whole-snapshot import as complete, and keeps that through note edits", async () => {
+    const a = await login("complete");
+    assert.equal((await seed(a.token)).snapshot.complete, true);
+    const r = await call("/api/snapshot/item-note", a.token, "PATCH", {
+      listId: "list-1",
+      itemId: "one",
+      localNote: "Note",
+    });
+    assert.equal((await r.json()).snapshot.complete, true);
+    const empty = await call("/api/snapshot", a.token, "PUT", {
+      deviceId: "test",
+      snapshot: { syncedAt: at, source: "test-import", lists: [] },
+    });
+    assert.equal(empty.status, 200);
+    assert.equal((await empty.json()).snapshot.complete, false);
+  });
   it("keeps unrelated concurrent note changes", async () => {
     const a = await login("concurrent-notes");
     await seed(a.token);
