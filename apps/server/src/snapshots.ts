@@ -69,7 +69,11 @@ export function mergeSnapshotList(input: {
       ? next.filter((list) => input.expectedListIds?.includes(list.id))
       : next,
     // Only the last chunk of an import names every list; until it arrives the import is partial.
-    complete: input.expectedListIds !== undefined,
+    // A single list sent outside an import (a note edit) removes nothing, so a complete
+    // snapshot stays complete.
+    complete:
+      input.expectedListIds !== undefined ||
+      input.currentSnapshot?.complete === true,
   });
 }
 

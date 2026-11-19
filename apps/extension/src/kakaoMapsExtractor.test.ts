@@ -4,15 +4,41 @@ import { extractSnapshotInPageEnvelope } from "./kakaoMapsExtractor.js";
 
 const pages: Record<string, unknown> = {
   "/folder/list": [
-    { folderid: 1, title: "Mine", status: "O" },
+    { folderid: 1, title: "Mine", status: "O", kakao_map_user_id: "me" },
     {
       folderid: 2,
       title: "Followed",
       status: "O",
       subscribe: "Y",
       nickname: "친구",
+      kakao_map_user_id: "friend",
+    },
+    // Her own public list: Kakao marks public folders with subscribe too.
+    {
+      folderid: 3,
+      title: "My public",
+      status: "O",
+      subscribe: "Y",
+      kakao_map_user_id: "me",
+    },
+    {
+      folderid: 4,
+      title: "Flag off",
+      status: "O",
+      subscribe: "N",
+      kakao_map_user_id: "x",
+    },
+    {
+      folderid: 5,
+      title: "Zero",
+      status: "O",
+      subscribe: 0,
+      kakao_map_user_id: "y",
     },
   ],
+  "/favorite/mine/list?folderid=3": { favorites: [] },
+  "/favorite/mine/list?folderid=4": { favorites: [] },
+  "/favorite/mine/list?folderid=5": { favorites: [] },
   "/favorite/mine/list?folderid=1": {
     favorites: [
       {
@@ -80,5 +106,16 @@ describe("Kakao Maps page extraction", () => {
       [497278, 1128228, "PLACE"],
     );
     assert.equal(followed?.items[0]?.kakaoType, "ADDRESS");
+  });
+
+  it("never counts her own public lists, or a flag that says no, as followed", async () => {
+    const envelope = await extractSnapshotInPageEnvelope();
+    assert.ok(envelope.ok, envelope.error);
+    const subscribed = Object.fromEntries(
+      (envelope.result?.snapshot.lists ?? []).map((l) => [l.id, l.subscribed]),
+    );
+    assert.equal(subscribed["kakao-folder-3"], false);
+    assert.equal(subscribed["kakao-folder-4"], false);
+    assert.equal(subscribed["kakao-folder-5"], false);
   });
 });

@@ -44,4 +44,21 @@ describe("snapshot completeness", () => {
       false,
     );
   });
+
+  it("stays complete when one list is uploaded again outside an import (a note edit)", () => {
+    const whole: SyncSnapshot = {
+      syncedAt: at,
+      source: "test",
+      complete: true,
+      lists: [list("a"), list("b")],
+    };
+    const edited = mergeSnapshotList({
+      currentSnapshot: whole,
+      list: list("a"),
+      syncedAt: at,
+      source: "note-edit",
+    });
+    assert.equal(edited.complete, true);
+    assert.deepEqual(edited.lists.map((l) => l.id).sort(), ["a", "b"]);
+  });
 });
