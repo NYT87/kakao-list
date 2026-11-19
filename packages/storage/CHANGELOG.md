@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.1.3](https://github.com/NYT87/kakao-list/compare/storage-v0.1.2...storage-v0.1.3) (2026-11-19)
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * @kakao-lists/domain bumped to 0.1.3
+
 ## [0.1.2](https://github.com/NYT87/kakao-list/compare/storage-v0.1.1...storage-v0.1.2) (2026-10-25)
 
 
