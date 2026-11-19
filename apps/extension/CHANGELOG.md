@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.1.4](https://github.com/NYT87/kakao-list/compare/extension-v0.1.3...extension-v0.1.4) (2026-11-19)
+
+
+### Features
+
+* keep raw coordinates, favourite type, subscribed lists and import completeness ([ce60483](https://github.com/NYT87/kakao-list/commit/ce604833cce63e422968a75ff6fca3f35003bfb5))
+* magomap import integration ([f5e8a6d](https://github.com/NYT87/kakao-list/commit/f5e8a6d612e228e2d8ef6789d120780fc8be2744))
+
+
+### Bug Fixes
+
+* **ci:** enforce checks before merge ([9a4f67e](https://github.com/NYT87/kakao-list/commit/9a4f67e38d6a225384f3ceb1a2528ea62621ee9a))
+* **ci:** format release changes ([24a47e4](https://github.com/NYT87/kakao-list/commit/24a47e44c6e0d7be4d3559f0f6cc2e26ee704213))
+* own public lists are not followed; note edits keep an import complete ([c0ce1bb](https://github.com/NYT87/kakao-list/commit/c0ce1bb28068cd1e8fac8e14b43ad9c4b7c1df7d))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * @kakao-lists/domain bumped to 0.1.3
+    * @kakao-lists/storage bumped to 0.1.3
+    * @kakao-lists/sync bumped to 0.1.3
+
 ## [0.1.3](https://github.com/NYT87/kakao-list/compare/extension-v0.1.2...extension-v0.1.3) (2026-10-25)
 
 
