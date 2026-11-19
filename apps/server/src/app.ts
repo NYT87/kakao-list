@@ -25,6 +25,10 @@ import {
 import { createAgentVerifier } from "./agentVerifier.js";
 import { getBuildInfo } from "./buildInfo.js";
 import { createKakaoOAuth } from "./kakaoOAuth.js";
+import {
+  createMagomapIntegrationRouter,
+  MAGOMAP_SECRET_MIN_LENGTH,
+} from "./magomapIntegration.js";
 import { createMaintenanceRouter, runMaintenance } from "./maintenance.js";
 import { createMcpRouter } from "./mcpServer.js";
 import { createPostgresOAuthStore, OAUTH_SCHEMA_SQL } from "./oauthStore.js";
@@ -72,6 +76,7 @@ export function createApplication(options: {
   const kakaoRequestTimeoutMs = 5_000;
   // Bearer secret for the maintenance cron endpoint (Vercel Cron sends it).
   const cronSecret = env.CRON_SECRET ?? "";
+  const magomapSecret = env.MAGOMAP_IMPORT_SECRET ?? "";
 
   const pool =
     options.pool ??
@@ -112,6 +117,8 @@ export function createApplication(options: {
       if (response.headersSent || response.writableEnded) return response;
       if (
         (request.path.startsWith("/api") || request.path === "/health") &&
+        // Machine-to-machine endpoints answer with their own documented error bodies.
+        !request.path.startsWith("/api/integrations/") &&
         response.statusCode >= 400 &&
         typeof body === "string"
       ) {
@@ -728,6 +735,23 @@ export function createApplication(options: {
       rateLimits: createMcpRateLimits({ createStore: createRateLimitStore }),
     }),
   );
+
+  // magomap's server reads one account's lists through a shared secret. Off without a long one.
+  if (magomapSecret.length >= MAGOMAP_SECRET_MIN_LENGTH) {
+    app.use(
+      "/api/integrations/magomap",
+      createApiRateLimit({
+        createStore: createRateLimitStore,
+        prefix: "magomap-integration:",
+        perIpPerMinute: 180,
+      }),
+      createMagomapIntegrationRouter({ pool, secret: magomapSecret }),
+    );
+  } else if (magomapSecret) {
+    console.warn(
+      `MAGOMAP_IMPORT_SECRET is shorter than ${MAGOMAP_SECRET_MIN_LENGTH} characters; the magomap endpoints are off.`,
+    );
+  }
 
   // Daily cleanup from Vercel Cron (see vercel.json). Disabled without a secret.
   if (cronSecret) {

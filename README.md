@@ -344,6 +344,7 @@ See the [task checklist](docs/app-review-tasks.md) and [remediation status](docs
 - Sign-out revokes the current browser session and clears its cache. Account deletion is available in PWA settings; it does not delete original Kakao Maps lists.
 - Kakao access/refresh tokens are encrypted before database storage. On first startup after this migration, plaintext token records are removed and existing signed sessions stop working. Users must sign in again. Back up and stage deployments before rollout.
 - Snapshot history retains at most 20 recorded versions per account and 30 days. Incomplete import chunks update the latest snapshot but do not create full history copies. History is not a user-facing restore feature.
+- `MAGOMAP_IMPORT_SECRET` (at least 32 characters) turns on the read-only endpoints magomap uses to import one account's lists: `GET /api/integrations/magomap/lists` and `GET /api/integrations/magomap/lists/:kakaoFolderId/items`. Without it, or with a shorter one, they don't exist.
 - Daily cron requires `CRON_SECRET`. It removes expired sessions, old history, and Kakao credentials unused for 60 days, alongside the existing assistant cleanup.
 - The production PWA build caches its public app shell for offline use. Private snapshots remain in the account-scoped repository; API/auth responses are not service-worker cached. First sign-in and fresh imports require a connection.
 
