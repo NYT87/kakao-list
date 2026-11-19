@@ -300,6 +300,53 @@ describe("main API with real PostgreSQL", { skip: !databaseUrl }, () => {
       assert.equal(await missing.text(), '{"error":"no_snapshot"}');
     });
 
+    it("gives a Kakao place key only to Kakao places, not addresses, points or routes", async () => {
+      const a = await login("magomap-types");
+      const typed = (id: string, kakaoType?: string) => ({
+        id,
+        title: id,
+        placeKey: `key-${id}`,
+        ...(kakaoType ? { kakaoType } : {}),
+      });
+      const items = [
+        typed("place", "PLACE"),
+        typed("address", "ADDRESS"),
+        typed("point", "POINT"),
+        typed("route", "ROUTE_BICYCLE"),
+        typed("untyped"),
+      ];
+      await call("/api/snapshot", a.token, "PUT", {
+        deviceId: "test",
+        snapshot: {
+          syncedAt: at,
+          source: "test-import",
+          lists: [
+            {
+              id: "kakao-folder-9",
+              name: "types",
+              updatedAt: at,
+              itemCount: items.length,
+              items,
+            },
+          ],
+        },
+      });
+      const r = await magomap(`/lists/9/items?kakaoUserId=${a.user.id}`);
+      const page = (await r.json()) as {
+        items: { favoriteSeq: string; placeKey?: string }[];
+      };
+      assert.deepEqual(
+        page.items.map((i) => [i.favoriteSeq, i.placeKey]),
+        [
+          ["place", "key-place"],
+          ["address", undefined],
+          ["point", undefined],
+          ["route", undefined],
+          ["untyped", "key-untyped"],
+        ],
+      );
+    });
+
     it("is absent without a secret, or with one too short to trust", async () => {
       const path = "/api/integrations/magomap/lists?kakaoUserId=nobody";
       const none = await otherApp({}, path);

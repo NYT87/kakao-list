@@ -22,6 +22,7 @@ Returns a JSON array of folder (list) records. Observed fields:
 
 - Folders with `status: "D"` are deleted placeholders and are skipped on import.
 - Older snapshots can still contain placeholder rows such as `Folder 2052505`, so the clients also hide them when reading.
+- **Followed folders** (checked with a real import on 2026-11-19): `subscribe` was set on the 9 folders the account follows, all made by one other user, and on none of the account's 6 own folders. Kakao is also documented to set it on public folders, so the importer treats a flagged folder as followed only when its `kakao_map_user_id` differs from the owner of the account's unflagged folders, and treats `N`, `0`, `""` and `false` as not set.
 
 ### `GET /favorite/mine/list?folderid=<folderid>`
 
@@ -32,6 +33,17 @@ Returns `{ favorites: [...] }` for one folder. Observed item fields:
 - `seq` identifies the saved favorite and becomes the imported item's `id`.
 - `folderid` is stored on the item as `kakaoFolderId`. Note edits must use it rather than a folder id derived from the list id, otherwise the extension can resolve and verify against the wrong favorite even when the place `key` matches.
 - `memo` is the Kakao note. It is kept separate from the user's own local note, which lives on the sync server.
+- **`type`** (seen on a real import of 2,993 favourites on 2026-11-19):
+
+  | `type` | Count | Example | Notes |
+  |---|---|---|---|
+  | `PLACE` | 2,965 | a café | `key` is a Kakao place id (`place.map.kakao.com/<key>`) |
+  | `ADDRESS` | 24 | "102 Hangeulbiseok-ro, Nowon-gu, Seoul" | has a `key`, but it isn't a place id |
+  | `POINT` | 2 | "bukhansan national park stamp" | a dropped pin; has a `key` |
+  | `ROUTE_BICYCLE` | 2 | "muan loop" | a saved route; has a `key`, no `x`/`y` |
+
+  Only `PLACE` favourites are sent to magomap with a place key (`MAGOMAP_PLACE_TYPES`); the others arrive as pins at their own coordinates.
+- **`x`/`y`** are numbers in Kakao's WCONGNAMUL projection. They are missing on routes and on a handful of places (5 of 2,965), which then have no position.
 
 Also seen on page load but not used: `GET /favorite/timestamp`, `GET /favorite/myplace/list.json`.
 
