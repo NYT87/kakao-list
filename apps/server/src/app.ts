@@ -27,6 +27,7 @@ import { getBuildInfo } from "./buildInfo.js";
 import { createKakaoOAuth } from "./kakaoOAuth.js";
 import {
   createMagomapIntegrationRouter,
+  MAGOMAP_PLACE_TYPES,
   MAGOMAP_SECRET_MIN_LENGTH,
 } from "./magomapIntegration.js";
 import { createMaintenanceRouter, runMaintenance } from "./maintenance.js";
@@ -745,7 +746,11 @@ export function createApplication(options: {
         prefix: "magomap-integration:",
         perIpPerMinute: 180,
       }),
-      createMagomapIntegrationRouter({ pool, secret: magomapSecret }),
+      createMagomapIntegrationRouter({
+        pool,
+        secret: magomapSecret,
+        placeTypes: MAGOMAP_PLACE_TYPES,
+      }),
     );
   } else if (magomapSecret) {
     console.warn(
