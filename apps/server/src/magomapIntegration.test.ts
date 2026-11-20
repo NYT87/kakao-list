@@ -74,6 +74,8 @@ describe("magomap lists", () => {
       importedAt: "2026-11-01T10:00:00.000Z",
       complete: true,
       subscriptionKnown: false,
+      // 제주 is the account's own list, made by 지은.
+      ownerNickname: "지은",
       lists: [
         {
           kakaoFolderId: 123,
@@ -122,6 +124,53 @@ describe("magomap lists", () => {
     assert.ok(items);
     assert.equal("lat" in (items.items[0] ?? {}), false);
     assert.equal(items.items[0]?.placeKey, "5");
+  });
+});
+
+const own = (name: string, creatorName?: string) => ({
+  id: `kakao-folder-${name.length + 1}${name.charCodeAt(0)}`,
+  name,
+  ...(creatorName !== undefined ? { creatorName } : {}),
+  updatedAt: at,
+  itemCount: 0,
+  subscribed: false,
+  items: [],
+});
+
+describe("magomap lists: the account's own nickname", () => {
+  it("sends the nickname from the account's own lists", () => {
+    const body = toMagomapLists(
+      "4242",
+      stored({ lists: [own("제주", "  지은 ")] }),
+    );
+    assert.equal(body.ownerNickname, "지은");
+  });
+
+  it("skips own lists without a name and uses the next one", () => {
+    const body = toMagomapLists(
+      "4242",
+      stored({ lists: [own("비밀", ""), own("부산", "지은")] }),
+    );
+    assert.equal(body.ownerNickname, "지은");
+  });
+
+  it("never takes the nickname of a followed list's creator", () => {
+    const body = toMagomapLists(
+      "4242",
+      stored({
+        lists: [{ ...own("친구", "Other"), subscribed: true }, own("비밀")],
+      }),
+    );
+    assert.ok(!("ownerNickname" in body));
+  });
+
+  it("leaves it out when no list has a name", () => {
+    const body = toMagomapLists(
+      "4242",
+      stored({ lists: [own("비밀"), own("집", "  ")] }),
+    );
+    assert.ok(!("ownerNickname" in body));
+    assert.ok(!JSON.stringify(body).includes("ownerNickname"));
   });
 });
 

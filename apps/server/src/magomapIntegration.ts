@@ -42,6 +42,8 @@ export interface MagomapLists {
   importedAt: string;
   complete: boolean;
   subscriptionKnown: boolean;
+  /** The account's own Kakao nickname, from its own lists (absent when none has one). */
+  ownerNickname?: string;
   lists: MagomapListSummary[];
 }
 
@@ -93,6 +95,12 @@ export function toMagomapLists(
   stored: PushSnapshotResult,
 ): MagomapLists {
   const lists = kakaoLists(stored);
+  // Kakao only names the creator on public or followed folders: take the account's own name
+  // from its own lists, never from a list someone else made.
+  const ownerNickname = stored.snapshot.lists
+    .filter((list) => list.subscribed !== true)
+    .map((list) => list.creatorName?.trim())
+    .find((name): name is string => Boolean(name));
   return {
     contractVersion: 1,
     kakaoUserId,
@@ -104,6 +112,7 @@ export function toMagomapLists(
       stored.snapshot.lists.every(
         (list) => typeof list.subscribed === "boolean",
       ),
+    ...(ownerNickname ? { ownerNickname } : {}),
     lists: lists.map(({ list, kakaoFolderId }) =>
       defined({
         kakaoFolderId,
