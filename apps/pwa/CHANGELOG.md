@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.1.4](https://github.com/NYT87/kakao-list/compare/pwa-v0.1.3...pwa-v0.1.4) (2026-11-20)
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * @kakao-lists/domain bumped to 0.1.4
+    * @kakao-lists/storage bumped to 0.1.4
+    * @kakao-lists/sync bumped to 0.1.4
+
 ## [0.1.3](https://github.com/NYT87/kakao-list/compare/pwa-v0.1.2...pwa-v0.1.3) (2026-11-19)
 
 
