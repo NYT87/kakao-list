@@ -14,11 +14,16 @@ import { loadSnapshot } from "./snapshots.js";
 /** Shorter secrets leave the endpoints off. */
 export const MAGOMAP_SECRET_MIN_LENGTH = 32;
 /**
- * Kakao favourite types that are places (confirmed by a real import, 2026-11-19: PLACE, plus
- * ADDRESS, POINT and ROUTE_BICYCLE, which also carry a `key` but aren't places). Other
- * favourites reach magomap without a place key, as pins at their own coordinates.
+ * Kakao favourite types magomap shows as places, with their `key` (seen on a real import,
+ * 2026-11-19: PLACE, ADDRESS, POINT and ROUTE_BICYCLE). A PLACE key is a Kakao place id; an
+ * ADDRESS key (`N…`/`J…`) is Kakao's address id, which magomap keeps as the place's id but
+ * doesn't link to as a place page. POINT and ROUTE_BICYCLE favourites reach magomap without a
+ * key, as pins at their own coordinates.
  */
-export const MAGOMAP_PLACE_TYPES: ReadonlySet<string> = new Set(["PLACE"]);
+export const MAGOMAP_PLACE_TYPES: ReadonlySet<string> = new Set([
+  "PLACE",
+  "ADDRESS",
+]);
 /** Largest page magomap asks for. */
 export const MAGOMAP_PAGE_LIMIT = 500;
 

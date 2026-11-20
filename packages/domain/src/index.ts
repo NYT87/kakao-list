@@ -274,8 +274,9 @@ export function parseSnapshot(value: unknown): SyncSnapshot {
   };
   // Kakao's own fields are kept only when well-formed and dropped otherwise, never refused:
   // stored snapshots are read through here, and one odd value must not lock an account.
-  const positive = (input: unknown): input is number =>
-    typeof input === "number" && Number.isFinite(input) && input > 0;
+  // Negative Kakao coordinates are real (southern Jeju, far western islands); 0 means none.
+  const coordinate = (input: unknown): input is number =>
+    typeof input === "number" && Number.isFinite(input) && input !== 0;
   const shortText = (input: unknown, max: number): string | undefined =>
     typeof input === "string" &&
     input.trim() &&
@@ -336,7 +337,7 @@ export function parseSnapshot(value: unknown): SyncSnapshot {
         subtitle: text(item.subtitle, 5000, true),
         kakaoNote: text(item.kakaoNote, 5000, true),
         localNote: text(item.localNote, SNAPSHOT_LIMITS.note, true),
-        ...(positive(item.kakaoX) && positive(item.kakaoY)
+        ...(coordinate(item.kakaoX) && coordinate(item.kakaoY)
           ? { kakaoX: item.kakaoX, kakaoY: item.kakaoY }
           : {}),
         ...(shortText(item.kakaoType, 40) !== undefined

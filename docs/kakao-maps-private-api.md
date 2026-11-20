@@ -42,7 +42,7 @@ Returns `{ favorites: [...] }` for one folder. Observed item fields:
   | `POINT` | 2 | "bukhansan national park stamp" | a dropped pin; has a `key` |
   | `ROUTE_BICYCLE` | 2 | "muan loop" | a saved route; has a `key`, no `x`/`y` |
 
-  Only `PLACE` favourites are sent to magomap with a place key (`MAGOMAP_PLACE_TYPES`); the others arrive as pins at their own coordinates.
+  `PLACE` and `ADDRESS` favourites are sent to magomap with their key (`MAGOMAP_PLACE_TYPES`), so both become places there. An `ADDRESS` key (`N…`/`J…`) is the `docid` of Kakao's address lookup, not a place id. `POINT` and `ROUTE_BICYCLE` favourites arrive as pins at their own coordinates.
 - **`x`/`y`** are numbers in Kakao's WCONGNAMUL projection. They are missing on routes and on a handful of places (5 of 2,965), which then have no position.
 
 Also seen on page load but not used: `GET /favorite/timestamp`, `GET /favorite/myplace/list.json`.

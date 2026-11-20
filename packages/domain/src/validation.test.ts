@@ -80,10 +80,28 @@ describe("snapshot boundary", () => {
       [497278, 1128228, "PLACE"],
     );
   });
+  it("keeps negative Kakao coordinates (southern Jeju, far western islands)", () => {
+    for (const [kakaoX, kakaoY] of [
+      [471350, -32433],
+      [-9670, 1248026],
+    ]) {
+      const parsed = parseSnapshot({
+        ...snapshot,
+        lists: [
+          {
+            ...snapshot.lists[0],
+            items: [{ id: "p", title: "Place", kakaoX, kakaoY }],
+          },
+        ],
+      });
+      const item = parsed.lists[0].items[0];
+      assert.deepEqual([item.kakaoX, item.kakaoY], [kakaoX, kakaoY]);
+    }
+  });
   it("drops bad Kakao fields instead of refusing the snapshot", () => {
     for (const bad of [
-      { kakaoX: -1, kakaoY: 3 },
       { kakaoX: "a", kakaoY: 3 },
+      { kakaoX: 5, kakaoY: 0 },
       { kakaoX: 0, kakaoY: 0 },
       { kakaoX: 5, kakaoY: Number.NaN },
       { kakaoX: 5 },

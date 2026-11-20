@@ -300,7 +300,7 @@ describe("main API with real PostgreSQL", { skip: !databaseUrl }, () => {
       assert.equal(await missing.text(), '{"error":"no_snapshot"}');
     });
 
-    it("gives a Kakao place key only to Kakao places, not addresses, points or routes", async () => {
+    it("gives a key to Kakao places and addresses, not points or routes", async () => {
       const a = await login("magomap-types");
       const typed = (id: string, kakaoType?: string) => ({
         id,
@@ -339,7 +339,7 @@ describe("main API with real PostgreSQL", { skip: !databaseUrl }, () => {
         page.items.map((i) => [i.favoriteSeq, i.placeKey]),
         [
           ["place", "key-place"],
-          ["address", undefined],
+          ["address", "key-address"],
           ["point", undefined],
           ["route", undefined],
           ["untyped", "key-untyped"],
