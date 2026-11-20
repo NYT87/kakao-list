@@ -8,8 +8,12 @@ const EPSG_5181 =
   "+proj=tmerc +lat_0=38 +lon_0=127 +k=1 +x_0=200000 +y_0=500000 +ellps=GRS80 +units=m +no_defs";
 const toWgs84 = proj4(EPSG_5181, "WGS84");
 
-const positive = (v: unknown): v is number =>
-  typeof v === "number" && Number.isFinite(v) && v > 0;
+/**
+ * A usable coordinate: any finite non-zero number. Negative values are real (y south of about
+ * 33.5°N, e.g. southern Jeju; x on the far western islands); 0 means Kakao has no position.
+ */
+const usable = (v: unknown): v is number =>
+  typeof v === "number" && Number.isFinite(v) && v !== 0;
 
 /**
  * Latitude/longitude for a Kakao map point, or undefined when the input isn't a usable point or
@@ -19,7 +23,7 @@ export function wcongnamulToLatLng(
   x: unknown,
   y: unknown,
 ): { lat: number; lng: number } | undefined {
-  if (!positive(x) || !positive(y)) return undefined;
+  if (!usable(x) || !usable(y)) return undefined;
   const [lng, lat] = toWgs84.forward([x / 2.5, y / 2.5]);
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return undefined;
   if (lat < 32 || lat > 40 || lng < 123 || lng > 133) return undefined;
