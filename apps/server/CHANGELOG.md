@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.1.4](https://github.com/NYT87/kakao-list/compare/server-v0.1.3...server-v0.1.4) (2026-11-20)
+
+
+### Features
+
+* **server:** send magomap the key of ADDRESS favourites ([62f5cfc](https://github.com/NYT87/kakao-list/commit/62f5cfc9a5b2193fe3655e7b48edd58d858092f4))
+
+
+### Bug Fixes
+
+* keep negative Kakao coordinates; send ADDRESS keys to magomap ([a3a778f](https://github.com/NYT87/kakao-list/commit/a3a778f93642f6fa129a234c74c665e06035fd52))
+* **server:** send magomap a place key only for Kakao places ([8f77cdf](https://github.com/NYT87/kakao-list/commit/8f77cdf5e8763fb5dd371760ed17666332431d3a))
+* **server:** send magomap a place key only for Kakao places ([1f843b4](https://github.com/NYT87/kakao-list/commit/1f843b44708ce9dbb94feee50c75365d1d8a67ae))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * @kakao-lists/domain bumped to 0.1.4
+
 ## [0.1.3](https://github.com/NYT87/kakao-list/compare/server-v0.1.2...server-v0.1.3) (2026-11-19)
 
 

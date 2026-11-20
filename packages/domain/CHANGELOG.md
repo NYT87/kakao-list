@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.4](https://github.com/NYT87/kakao-list/compare/domain-v0.1.3...domain-v0.1.4) (2026-11-20)
+
+
+### Bug Fixes
+
+* **domain:** keep negative Kakao map coordinates ([8b593ff](https://github.com/NYT87/kakao-list/commit/8b593ffc748a149b5fdd6f072b4b541271964e1e))
+* keep negative Kakao coordinates; send ADDRESS keys to magomap ([a3a778f](https://github.com/NYT87/kakao-list/commit/a3a778f93642f6fa129a234c74c665e06035fd52))
+
 ## [0.1.3](https://github.com/NYT87/kakao-list/compare/domain-v0.1.2...domain-v0.1.3) (2026-11-19)
 
 
